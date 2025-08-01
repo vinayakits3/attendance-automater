@@ -1,0 +1,46 @@
+# Root-level
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.vscode/
+.idea/
+*.swp
+
+# Ignore OS-specific files
+Thumbs.db
+ehthumbs.db
+*.bak
+
+# Ignore lock files if using only one package manager (optional, pick one)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Backend specific
+backend/node_modules/
+backend/dist/
+backend/.env
+backend/.env.local
+backend/logs/
+
+# Frontend specific (Vue, React, etc.)
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/.next/       # for Next.js
+frontend/.nuxt/       # for Nuxt.js
+frontend/out/         # for Next.js static export
+
+# Cache files
+frontend/.cache/
+backend/.cache/

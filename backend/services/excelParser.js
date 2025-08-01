@@ -1,0 +1,752 @@
+const XLSX = require('xlsx');
+const { ATTENDANCE_CONFIG } = require('../utils/constants');
+
+class ExcelParserService {
+  /**
+   * Parse INN Department data from specific Excel format
+   * @param {Object} workbook - XLSX workbook object
+   * @returns {Array} Array of employee data
+   */
+  static parseINNDepartmentData(workbook) {
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    
+    console.log('Parsing INN Department data...');
+    console.log(`Sheet range: ${worksheet['!ref']}`);
+    
+    const dateColumns = this._extractDateColumns(worksheet, range);
+    const innDepartmentStartRow = this._findINNDepartmentRow(worksheet, range);
+    
+    if (innDepartmentStartRow === -1) {
+      throw new Error('INN Department not found in the Excel file');
+    }
+    
+    const employees = this._extractINNEmployees(worksheet, range, dateColumns, innDepartmentStartRow);
+    
+    console.log(`Total INN employees found: ${employees.length}`);
+    return employees;
+  }
+
+  /**
+   * Parse Four Punch data from any Excel file (flexible parsing)
+   * @param {Object} workbook - XLSX workbook object
+   * @returns {Array} Array of employee data
+   */
+  static parseFourPunchData(workbook) {
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    
+    console.log('Parsing Four Punch data...');
+    console.log(`Sheet range: ${worksheet['!ref']}`);
+    
+    // Debug: Print first few rows to understand structure
+    this._debugPrintStructure(worksheet, range);
+    
+    const dateColumns = this._extractDateColumnsFlexible(worksheet, range);
+    console.log('Date columns found:', Object.keys(dateColumns).length);
+    
+    const employees = this._extractAllEmployeesFlexible(worksheet, range, dateColumns);
+    
+    console.log(`Total employees found: ${employees.length}`);
+    return employees;
+  }
+
+  /**
+   * Parse Fixed Format File (June 2025 specific format)
+   * @param {Object} workbook - XLSX workbook object
+   * @returns {Array} Array of employee data
+   */
+  static parseFixedFormatFile(workbook) {
+    const { UTILS, ATTENDANCE_CONFIG } = require('../utils/constants');
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    
+    console.log('Parsing Fixed Format File...');
+    console.log(`Sheet range: ${worksheet['!ref']}`);
+    
+    const employees = [];
+    
+    // Look for employee data rows (scan the sheet for employee patterns)
+    for (let row = 0; row <= range.e.r; row++) {
+      // Check if this row contains employee information
+      const employeeFound = this._findEmployeeInRow(worksheet, row, range.e.c);
+      
+      if (employeeFound) {
+        const employee = this._parseFixedFormatEmployee(worksheet, row, range, UTILS);
+        if (employee) {
+          employees.push(employee);
+          console.log(`Parsed fixed format employee: ${employee.name} (ID: ${employee.id})`);
+        }
+      }
+    }
+    
+    console.log(`Total employees found in fixed format: ${employees.length}`);
+    return employees;
+  }
+
+  /**
+   * Find employee in a specific row
+   * @private
+   */
+  static _findEmployeeInRow(worksheet, row, maxCol) {
+    // Look for employee ID patterns or employee names in the first few columns
+    for (let col = 0; col <= Math.min(5, maxCol); col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v) {
+        const value = cell.v.toString();
+        
+        // Check for employee ID patterns (numeric IDs)
+        if (/^\\d{3,}$/.test(value)) {
+          return true;
+        }
+        
+        // Check for employee name patterns
+        if (/^[A-Z][a-z]+\\s+[A-Z][a-z]+/.test(value)) {
+          return true;
+        }
+        
+        // Check for "Employee:" indicator
+        if (value.includes('Employee:') || value.includes('EMP')) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Parse employee from fixed format
+   * @private
+   */
+  static _parseFixedFormatEmployee(worksheet, row, range, UTILS) {
+    let employeeId = '';
+    let employeeName = '';
+    
+    // Find employee ID and name in the row
+    for (let col = 0; col <= Math.min(10, range.e.c); col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v) {
+        const value = cell.v.toString().trim();
+        
+        // Look for ID patterns
+        if (!employeeId && /^\\d{3,}$/.test(value)) {
+          employeeId = value;
+        }
+        
+        // Look for name patterns  
+        if (!employeeName && /^[A-Z][a-z]+\\s+[A-Z][a-z]+/.test(value)) {
+          employeeName = value;
+        }
+        
+        // Handle "ID : Name" format
+        if (value.includes(':')) {
+          const parts = value.split(':').map(p => p.trim());
+          if (parts.length === 2) {
+            employeeId = parts[0];
+            employeeName = parts[1];
+            break;
+          }
+        }
+      }
+    }
+    
+    // Fallback values
+    if (!employeeId) employeeId = `EMP${row}`;
+    if (!employeeName) employeeName = employeeId;
+    
+    // Parse daily attendance data (look for time columns)
+    const dailyData = this._parseFixedFormatDailyData(worksheet, row, range, UTILS);
+    
+    const employee = {
+      id: employeeId,
+      name: employeeName,
+      department: 'General',
+      summary: this._calculateEmployeeSummary(dailyData),
+      dailyData: dailyData
+    };
+    
+    return employee;
+  }
+
+  /**
+   * Parse daily attendance data from fixed format
+   * @private
+   */
+  static _parseFixedFormatDailyData(worksheet, employeeRow, range, UTILS) {
+    const dailyData = [];
+    const month = ATTENDANCE_CONFIG.REPORT_MONTH;
+    const year = ATTENDANCE_CONFIG.REPORT_YEAR;
+    
+    // Look for InTime1, OutTime1, InTime2, OutTime2 rows
+    const timeRows = {
+      inTime1: -1,
+      outTime1: -1,
+      inTime2: -1,
+      outTime2: -1
+    };
+    
+    // Find the time data rows (usually within 10 rows of employee row)
+    for (let r = employeeRow; r <= Math.min(employeeRow + 15, range.e.r); r++) {
+      const firstColCell = worksheet[XLSX.utils.encode_cell({ r: r, c: 0 })];
+      
+      if (firstColCell && firstColCell.v) {
+        const value = firstColCell.v.toString().toLowerCase();
+        
+        if (value.includes('intime1') || value.includes('in time 1')) {
+          timeRows.inTime1 = r;
+        } else if (value.includes('outtime1') || value.includes('out time 1')) {
+          timeRows.outTime1 = r;
+        } else if (value.includes('intime2') || value.includes('in time 2')) {
+          timeRows.inTime2 = r;
+        } else if (value.includes('outtime2') || value.includes('out time 2')) {
+          timeRows.outTime2 = r;
+        }
+      }
+    }
+    
+    // Parse each day's data (assuming columns represent days)
+    for (let day = 1; day <= 30; day++) { // June has 30 days
+      const col = day + 1; // Assuming day columns start from column 2
+      
+      if (col > range.e.c) break;
+      
+      const isWeekend = UTILS.isWeekend(day, month, year);
+      const dayName = UTILS.getDayName(day, month, year);
+      
+      const dayRecord = {
+        day: day,
+        dayType: dayName,
+        status: isWeekend ? 'WO' : 'P', // Default to Present for weekdays, Weekend Off for weekends
+        inTime1: this._getTimeFromCell(worksheet, timeRows.inTime1, col, UTILS, 'in'),
+        outTime1: this._getTimeFromCell(worksheet, timeRows.outTime1, col, UTILS, 'out'),
+        inTime2: this._getTimeFromCell(worksheet, timeRows.inTime2, col, UTILS, 'in'),
+        outTime2: this._getTimeFromCell(worksheet, timeRows.outTime2, col, UTILS, 'out'),
+        duration: '00:00',
+        lateBy: null,
+        earlyBy: null,
+        overtime: null,
+        shift: ''
+      };
+      
+      // Determine actual status based on punch data
+      if (!isWeekend) {
+        if (!dayRecord.inTime1 && !dayRecord.outTime1) {
+          dayRecord.status = 'A'; // Absent
+        } else {
+          dayRecord.status = 'P'; // Present
+        }
+      }
+      
+      dailyData.push(dayRecord);
+    }
+    
+    return dailyData;
+  }
+
+  /**
+   * Get time from cell with multiple time handling
+   * @private
+   */
+  static _getTimeFromCell(worksheet, row, col, UTILS, type) {
+    if (row === -1) return null;
+    
+    const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+    const cell = worksheet[cellAddress];
+    
+    if (!cell || !cell.v) return null;
+    
+    const timeString = cell.v.toString().trim();
+    
+    // Handle multiple times using UTILS function
+    return UTILS.parseMultipleTimes(timeString, type);
+  }
+
+  /**
+   * Calculate employee summary from daily data
+   * @private
+   */
+  static _calculateEmployeeSummary(dailyData) {
+    let present = 0;
+    let absent = 0;
+    let totalLateMinutes = 0;
+    let totalEarlyMinutes = 0;
+    
+    dailyData.forEach(day => {
+      if (day.status === 'P') {
+        present++;
+      } else if (day.status === 'A') {
+        absent++;
+      }
+      
+      // Calculate late/early minutes (will be done in analyzer)
+    });
+    
+    return {
+      present: present,
+      absent: absent,
+      lateByHours: this._minutesToHours(totalLateMinutes),
+      earlyByHours: this._minutesToHours(totalEarlyMinutes)
+    };
+  }
+
+  /**
+   * Convert minutes to HH:MM format
+   * @private
+   */
+  static _minutesToHours(minutes) {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  }
+
+  /**
+   * Debug: Print Excel structure to understand format
+   * @private
+   */
+  static _debugPrintStructure(worksheet, range) {
+    console.log('=== EXCEL STRUCTURE DEBUG ===');
+    for (let row = 0; row < Math.min(10, range.e.r + 1); row++) {
+      const rowData = [];
+      for (let col = 0; col < Math.min(10, range.e.c + 1); col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+        const cell = worksheet[cellAddress];
+        rowData.push(cell ? cell.v : '');
+      }
+      console.log(`Row ${row + 1}:`, rowData);
+    }
+    console.log('=== END DEBUG ===');
+  }
+
+  /**
+   * Extract date columns flexibly - look for date patterns in multiple rows
+   * @private
+   */
+  static _extractDateColumnsFlexible(worksheet, range) {
+    const dateColumns = {};
+    
+    // Try different rows where dates might be located (rows 1-10)
+    for (let dateRow = 0; dateRow < Math.min(10, range.e.r + 1); dateRow++) {
+      const foundDates = this._tryExtractDatesFromRow(worksheet, range, dateRow);
+      if (Object.keys(foundDates).length > 0) {
+        console.log(`Found dates in row ${dateRow + 1}`);
+        Object.assign(dateColumns, foundDates);
+        break;
+      }
+    }
+    
+    // If no date pattern found, create generic column mapping
+    if (Object.keys(dateColumns).length === 0) {
+      console.log('No date pattern found, using generic column mapping');
+      for (let col = 2; col <= Math.min(range.e.c, 40); col++) {
+        dateColumns[col] = { day: col - 1, dayType: 'Day' };
+      }
+    }
+    
+    return dateColumns;
+  }
+
+  /**
+   * Try to extract dates from a specific row
+   * @private
+   */
+  static _tryExtractDatesFromRow(worksheet, range, row) {
+    const dateColumns = {};
+    
+    for (let col = 2; col <= Math.min(range.e.c, 50); col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v) {
+        const cellValue = cell.v.toString();
+        
+        // Try different date patterns
+        const patterns = [
+          /(\d+)\s+([A-Za-z]+)/,  // "1 Sat", "2 Sun"
+          /(\d+)\/(\d+)/,          // "1/6", "2/6" 
+          /(\d+)-([A-Za-z]+)/,     // "1-Jun", "2-Jun"
+          /^(\d+)$/                // Just numbers "1", "2"
+        ];
+        
+        for (const pattern of patterns) {
+          const match = cellValue.match(pattern);
+          if (match) {
+            const day = parseInt(match[1]);
+            const dayType = match[2] || 'Day';
+            if (day >= 1 && day <= 31) {
+              dateColumns[col] = { day, dayType };
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    return dateColumns;
+  }
+
+  /**
+   * Extract all employees flexibly - look for employee patterns
+   * @private
+   */
+  static _extractAllEmployeesFlexible(worksheet, range, dateColumns) {
+    const employees = [];
+    
+    // Look for different employee indicators
+    const employeeIndicators = ['Employee:', 'EMP', 'Name', 'ID'];
+    
+    for (let row = 0; row <= range.e.r; row++) {
+      // Check different columns for employee indicators
+      for (let col = 0; col <= Math.min(5, range.e.c); col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+        const cell = worksheet[cellAddress];
+        
+        if (cell && cell.v) {
+          const cellValue = cell.v.toString();
+          
+          // Check if this looks like an employee indicator
+          if (employeeIndicators.some(indicator => 
+              cellValue.includes(indicator) || this._looksLikeEmployeeData(cellValue))) {
+            
+            const employee = this._parseEmployeeDataFlexible(worksheet, row, dateColumns, col);
+            if (employee && !employees.some(emp => emp.id === employee.id)) {
+              employees.push(employee);
+              console.log(`Found employee: ${employee.name} (ID: ${employee.id})`);
+            }
+          }
+        }
+      }
+    }
+    
+    return employees;
+  }
+
+  /**
+   * Check if a cell value looks like employee data
+   * @private
+   */
+  static _looksLikeEmployeeData(value) {
+    // Look for patterns like "12345 : John Doe" or "EMP001" or employee names
+    const patterns = [
+      /^\d+\s*:\s*[A-Za-z\s]+$/,  // "12345 : John Doe"
+      /^[A-Z]+\d+$/,               // "EMP001"
+      /^\d{4,}$/,                  // Employee ID numbers
+      /^[A-Z][a-z]+\s+[A-Z][a-z]+$/ // "John Doe" pattern
+    ];
+    
+    return patterns.some(pattern => pattern.test(value.trim()));
+  }
+
+  /**
+   * Parse employee data flexibly
+   * @private
+   */
+  static _parseEmployeeDataFlexible(worksheet, row, dateColumns, startCol) {
+    // Look for employee info in nearby cells
+    let employeeId = '';
+    let employeeName = '';
+    
+    // Try to find employee ID and name in current and nearby cells
+    for (let col = startCol; col <= Math.min(startCol + 5, dateColumns ? Math.max(...Object.keys(dateColumns).map(Number)) : 10); col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v) {
+        const value = cell.v.toString();
+        
+        // Try to parse "ID : Name" format
+        if (value.includes(':')) {
+          const [id, name] = value.split(':').map(s => s.trim());
+          if (id && name) {
+            employeeId = id;
+            employeeName = name;
+            break;
+          }
+        }
+        
+        // If looks like an ID, use it
+        if (!employeeId && /^\d{3,}$/.test(value)) {
+          employeeId = value;
+        }
+        
+        // If looks like a name, use it
+        if (!employeeName && /^[A-Za-z\s]{3,}$/.test(value)) {
+          employeeName = value;
+        }
+      }
+    }
+    
+    // Fallback values
+    if (!employeeId) employeeId = `EMP${row}`;
+    if (!employeeName) employeeName = employeeId;
+    
+    // Parse summary data (look in nearby rows and columns)
+    const summary = this._parseSummaryDataFlexible(worksheet, row, startCol);
+    
+    const employee = {
+      id: employeeId,
+      name: employeeName,
+      department: 'General',
+      summary: summary,
+      dailyData: []
+    };
+    
+    // Parse daily attendance data
+    if (dateColumns && Object.keys(dateColumns).length > 0) {
+      Object.entries(dateColumns).forEach(([colIndex, dateInfo]) => {
+        const col = parseInt(colIndex);
+        const { day, dayType } = dateInfo;
+        
+        const dailyRecord = this._parseDailyRecordFlexible(worksheet, row, col, day, dayType);
+        employee.dailyData.push(dailyRecord);
+      });
+    }
+    
+    return employee;
+  }
+
+  /**
+   * Parse summary data flexibly
+   * @private
+   */
+  static _parseSummaryDataFlexible(worksheet, row, startCol) {
+    let summary = {
+      present: 0,
+      absent: 0,
+      lateByHours: '00:00',
+      earlyByHours: '00:00'
+    };
+    
+    // Look in a wider range for summary data
+    for (let r = row; r <= Math.min(row + 15, row + 15); r++) {
+      for (let c = startCol; c <= Math.min(startCol + 10, startCol + 10); c++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: r, c: c });
+        const cell = worksheet[cellAddress];
+        
+        if (cell && cell.v) {
+          const value = cell.v.toString();
+          
+          // Look for summary patterns
+          const presentMatch = value.match(/Present:\s*(\d+)/i);
+          const absentMatch = value.match(/Absent:\s*(\d+)/i);
+          const lateMatch = value.match(/Late.*?:\s*([\d:]+)/i);
+          const earlyMatch = value.match(/Early.*?:\s*([\d:]+)/i);
+          
+          if (presentMatch) summary.present = parseInt(presentMatch[1]);
+          if (absentMatch) summary.absent = parseInt(absentMatch[1]);
+          if (lateMatch) summary.lateByHours = lateMatch[1];
+          if (earlyMatch) summary.earlyByHours = earlyMatch[1];
+        }
+      }
+    }
+    
+    return summary;
+  }
+
+  /**
+   * Parse daily record flexibly
+   * @private
+   */
+  static _parseDailyRecordFlexible(worksheet, row, col, day, dayType) {
+    const dailyRecord = {
+      day: day,
+      dayType: dayType,
+      status: '',
+      inTime1: null,
+      outTime1: null,
+      inTime2: null,
+      outTime2: null,
+      duration: '00:00',
+      lateBy: null,
+      earlyBy: null,
+      overtime: null,
+      shift: ''
+    };
+    
+    // Look in multiple rows below the employee row for attendance data
+    for (let r = row; r <= Math.min(row + 15, worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']).e.r : row + 15); r++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: r, c: col });
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v) {
+        const value = cell.v.toString().trim();
+        
+        // Try to identify what type of data this is
+        if (value.match(/^[AHP]$|^WO$/)) {
+          dailyRecord.status = value;
+        } else if (value.match(/^\d{1,2}:\d{2}/) || value.match(/^\d{1,2}\.\d{2}/)) {
+          // Time data - assign to first available time slot
+          if (!dailyRecord.inTime1) {
+            dailyRecord.inTime1 = value;
+          } else if (!dailyRecord.outTime1) {
+            dailyRecord.outTime1 = value;
+          } else if (!dailyRecord.inTime2) {
+            dailyRecord.inTime2 = value;
+          } else if (!dailyRecord.outTime2) {
+            dailyRecord.outTime2 = value;
+          }
+        } else if (value.match(/^\d{1,2}:\d{2}:\d{2}$/)) {
+          // Duration data
+          dailyRecord.duration = value;
+        }
+      }
+    }
+    
+    return dailyRecord;
+  }
+
+  // Keep the original methods for backward compatibility
+  static _extractDateColumns(worksheet, range) {
+    const dateColumns = {};
+    const daysRow = 5; // Row 6 (0-indexed = 5)
+    
+    for (let col = 2; col <= Math.min(range.e.c, 50); col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: daysRow, c: col });
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v && typeof cell.v === 'string') {
+        const dayMatch = cell.v.match(/(\d+)\s+([A-Za-z]+)/);
+        if (dayMatch) {
+          const day = parseInt(dayMatch[1]);
+          const dayType = dayMatch[2];
+          dateColumns[col] = { day, dayType };
+        }
+      }
+    }
+    
+    console.log('Date columns found:', Object.keys(dateColumns).length);
+    return dateColumns;
+  }
+
+  static _findINNDepartmentRow(worksheet, range) {
+    for (let row = 0; row <= range.e.r; row++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: row, c: 4 }); // Column E
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v && cell.v.toString().toUpperCase() === 'INN') {
+        console.log(`Found INN department at row ${row + 1}`);
+        return row;
+      }
+    }
+    return -1;
+  }
+
+  static _extractINNEmployees(worksheet, range, dateColumns, startRow) {
+    const employees = [];
+    let currentRow = startRow + 2; // Start after department header and empty row
+    
+    while (currentRow < range.e.r) {
+      const employeeCell = worksheet[XLSX.utils.encode_cell({ r: currentRow, c: 0 })];
+      
+      if (!employeeCell || employeeCell.v !== 'Employee:') {
+        break; // End of INN department
+      }
+      
+      const employee = this._parseEmployeeData(worksheet, currentRow, dateColumns, ATTENDANCE_CONFIG.DEPARTMENT_NAME);
+      if (employee) {
+        employees.push(employee);
+        console.log(`Parsed employee: ${employee.name} (ID: ${employee.id})`);
+      }
+      
+      currentRow += 12; // Move to next employee block
+    }
+    
+    return employees;
+  }
+
+  static _extractAllEmployees(worksheet, range, dateColumns) {
+    const employees = [];
+    
+    for (let row = 0; row <= range.e.r; row += 12) {
+      const employeeCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 0 })];
+      
+      if (employeeCell && employeeCell.v === 'Employee:') {
+        const employee = this._parseEmployeeData(worksheet, row, dateColumns, 'General');
+        if (employee) {
+          employees.push(employee);
+          console.log(`Parsed employee: ${employee.name} (ID: ${employee.id})`);
+        }
+      }
+    }
+    
+    return employees;
+  }
+
+  static _parseEmployeeData(worksheet, row, dateColumns, department) {
+    const employeeInfoCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 4 })];
+    if (!employeeInfoCell || !employeeInfoCell.v) {
+      return null;
+    }
+    
+    const employeeInfo = employeeInfoCell.v.toString();
+    const [employeeId, employeeName] = employeeInfo.split(' : ');
+    
+    // Get summary from column I
+    const summaryCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 8 })];
+    const summaryText = summaryCell ? summaryCell.v.toString() : '';
+    
+    // Parse summary statistics
+    const presentMatch = summaryText.match(/Present:\s*(\d+)/);
+    const absentMatch = summaryText.match(/Absent:\s*(\d+)/);
+    const lateByHrsMatch = summaryText.match(/Late By Hrs:\s*([\d:]+)/);
+    const earlyByHrsMatch = summaryText.match(/Early By Hrs:\s*([\d:]+)/);
+    
+    const employee = {
+      id: employeeId ? employeeId.trim() : `EMP${row}`,
+      name: employeeName ? employeeName.trim() : employeeId ? employeeId.trim() : `Employee ${row}`,
+      department: department,
+      summary: {
+        present: presentMatch ? parseInt(presentMatch[1]) : 0,
+        absent: absentMatch ? parseInt(absentMatch[1]) : 0,
+        lateByHours: lateByHrsMatch ? lateByHrsMatch[1] : '00:00',
+        earlyByHours: earlyByHrsMatch ? earlyByHrsMatch[1] : '00:00'
+      },
+      dailyData: []
+    };
+    
+    // Parse daily attendance data
+    Object.entries(dateColumns).forEach(([colIndex, dateInfo]) => {
+      const col = parseInt(colIndex);
+      const { day, dayType } = dateInfo;
+      
+      const dailyRecord = this._parseDailyRecord(worksheet, row, col, day, dayType);
+      employee.dailyData.push(dailyRecord);
+    });
+    
+    return employee;
+  }
+
+  static _parseDailyRecord(worksheet, row, col, day, dayType) {
+    return {
+      day: day,
+      dayType: dayType,
+      status: worksheet[XLSX.utils.encode_cell({ r: row + 1, c: col })]?.v || '',
+      inTime1: worksheet[XLSX.utils.encode_cell({ r: row + 2, c: col })]?.v || null,
+      outTime1: worksheet[XLSX.utils.encode_cell({ r: row + 3, c: col })]?.v || null,
+      inTime2: worksheet[XLSX.utils.encode_cell({ r: row + 4, c: col })]?.v || null,
+      outTime2: worksheet[XLSX.utils.encode_cell({ r: row + 5, c: col })]?.v || null,
+      duration: worksheet[XLSX.utils.encode_cell({ r: row + 6, c: col })]?.v || '00:00',
+      lateBy: worksheet[XLSX.utils.encode_cell({ r: row + 7, c: col })]?.v || null,
+      earlyBy: worksheet[XLSX.utils.encode_cell({ r: row + 8, c: col })]?.v || null,
+      overtime: worksheet[XLSX.utils.encode_cell({ r: row + 9, c: col })]?.v || null,
+      shift: worksheet[XLSX.utils.encode_cell({ r: row + 10, c: col })]?.v || ''
+    };
+  }
+
+  static isFourPunchFormat(workbook) {
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const titleCell = worksheet['B1'];
+    
+    return titleCell && titleCell.v && 
+           titleCell.v.toString().includes('Four Punch');
+  }
+}
+
+module.exports = ExcelParserService;

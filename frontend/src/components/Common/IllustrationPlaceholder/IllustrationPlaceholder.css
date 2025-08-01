@@ -1,0 +1,53 @@
+/* Illustration Base Styles */
+.illustration {
+  width: 100%;
+  height: auto;
+  max-width: 400px;
+  display: block;
+}
+
+.illustration text {
+  font-family: inherit;
+  font-weight: 500;
+}
+
+/* Responsive Sizing */
+@media (max-width: 768px) {
+  .illustration {
+    max-width: 300px;
+  }
+}
+
+@media (max-width: 480px) {
+  .illustration {
+    max-width: 250px;
+  }
+}
+
+/* Animation for Interactive Elements */
+.illustration-animated {
+  animation: illustration-float 3s ease-in-out infinite;
+}
+
+@keyframes illustration-float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .illustration-animated {
+    animation: none;
+  }
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+  .illustration {
+    filter: contrast(1.2);
+  }
+}
