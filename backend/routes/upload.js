@@ -18,4 +18,11 @@ router.post('/', upload.single('excelFile'), UploadController.uploadFile);
  */
 router.get('/config', UploadController.getUploadConfig);
 
+/**
+ * @route   POST /api/upload/fixed
+ * @desc    Process fixed format file from predefined path
+ * @access  Public
+ */
+router.post('/fixed', require('../controllers/fixedFileController').processFixedFile);
+
 module.exports = router;

@@ -11,10 +11,12 @@ class ApiService {
   }
 
   /**
-   * Process attendance from fixed file (June 2025)
+   * Process attendance from fixed file with enhanced format support
    */
   static async processFixedFile() {
-    const response = await fetch(`${API_BASE_URL}/api/attendance/process-fixed-file`);
+    const response = await fetch(`${API_BASE_URL}/api/upload/fixed`, {
+      method: 'POST'
+    });
     return this._handleResponse(response);
   }
 

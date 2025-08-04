@@ -5,7 +5,7 @@ import './Results.css';
 /**
  * Results Section Component
  */
-const const Results = ({ 
+const Results = ({ 
   summary = null, 
   issues = [], 
   detailedAnalysis = null,
@@ -297,125 +297,7 @@ const const Results = ({
             </div>
           </Card>
         )}
-      </div>
-    </div>
-  );
-};
-          ← Back to Upload
-        </Button>
-        <h1>📊 Attendance Analysis Results</h1>
-      </header>
-
-      <div className="results-content">
-        {/* Summary Cards */}
-        <Card className="results-summary" padding="large">
-          <div className="summary-grid">
-            <div className="summary-card">
-              <div className="metric">{summary.totalEmployees}</div>
-              <div className="label">Total Employees</div>
             </div>
-            <div className="summary-card good">
-              <div className="metric">{summary.employeesWithoutIssues}</div>
-              <div className="label">No Issues</div>
-            </div>
-            <div className="summary-card warning">
-              <div className="metric">{summary.employeesWithIssues}</div>
-              <div className="label">With Issues</div>
-            </div>
-            <div className="summary-card danger">
-              <div className="metric">{summary.totalIssues}</div>
-              <div className="label">Total Issues</div>
-            </div>
-          </div>
-
-          {summary.issueBreakdown && (
-            <div className="issue-breakdown">
-              <h3>Issue Breakdown</h3>
-              <div className="breakdown-items">
-                <div className="breakdown-item">
-                  <span className="severity-high">🔴 High Severity:</span>
-                  <span>{summary.issueBreakdown.highSeverity}</span>
-                </div>
-                <div className="breakdown-item">
-                  <span className="severity-medium">🟡 Medium Severity:</span>
-                  <span>{summary.issueBreakdown.mediumSeverity}</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        {/* Detailed Issues */}
-        {issues && issues.length > 0 && (
-          <Card className="issues-section" padding="large">
-            <h2>🔍 Detailed Issues</h2>
-            <div className="issues-list">
-              {issues.map((employeeIssue, index) => (
-                <div key={index} className="employee-issues">
-                  <div className="employee-header">
-                    <h3>
-                      👤 {employeeIssue.employee.name} (ID: {employeeIssue.employee.id})
-                    </h3>
-                    <div className="issue-count">
-                      {employeeIssue.issues.length} issues
-                    </div>
-                  </div>
-                  
-                  <div className="issues-container">
-                    {employeeIssue.issues.map((issue, issueIndex) => (
-                      <div key={issueIndex} className={`issue-item ${issue.severity}`}>
-                        <span className="severity-badge">
-                          {issue.severity.toUpperCase()}
-                        </span>
-                        <span className="issue-message">{issue.message}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-
-        {/* Employee Overview */}
-        {summary.employees && summary.employees.length > 0 && (
-          <Card className="employees-section" padding="large">
-            <h2>📋 All Department Employees</h2>
-            <div className="employees-grid">
-              {summary.employees.map((employee, index) => (
-                <Card 
-                  key={index} 
-                  className="employee-card" 
-                  variant="secondary" 
-                  padding="normal"
-                  hover
-                >
-                  <div className="employee-name">
-                    👤 {employee.name}
-                  </div>
-                  <div className="employee-id">ID: {employee.id}</div>
-                  <div className="employee-stats">
-                    <div className="stat-item">
-                      <span>✅ Present:</span>
-                      <span>{employee.present}</span>
-                    </div>
-                    <div className="stat-item">
-                      <span>❌ Absent:</span>
-                      <span>{employee.absent}</span>
-                    </div>
-                    <div className="stat-item">
-                      <span>⚠️ Issues:</span>
-                      <span className={employee.hasIssues ? 'has-issues' : 'no-issues'}>
-                        {employee.hasIssues ? 'Yes' : 'No'}
-                      </span>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </Card>
-        )}
-      </div>
     </div>
   );
 };

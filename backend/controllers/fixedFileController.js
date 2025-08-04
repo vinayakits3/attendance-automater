@@ -6,7 +6,7 @@ const { ATTENDANCE_CONFIG, UTILS } = require('../utils/constants');
 
 class FixedFileController {
   /**
-   * Process the fixed Excel file from the specified path
+   * Process the fixed Excel file - INN Department Only
    */
   static async processFixedFile(req, res) {
     try {
@@ -16,18 +16,28 @@ class FixedFileController {
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({ 
           success: false,
-          error: `Excel file not found at: ${filePath}` 
+          error: `Excel file not found at: ${filePath}. Please ensure the file exists at this location.` 
         });
       }
       
-      console.log(`Processing fixed file: ${filePath}`);
+      console.log(`📂 Processing INN Department attendance from: ${filePath}`);
+    console.log(`⚖️  Using backend status calculation (InTime/OutTime logic, ignoring Excel status column)`);
       const workbook = XLSX.readFile(filePath);
       
-      // Parse the fixed file format
+      // Parse the fixed file format - INN Department Only
       const employees = ExcelParserService.parseFixedFormatFile(workbook);
       
+      if (employees.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No INN Department employees found in the Excel file. Please check if the file contains INN department data.'
+        });
+      }
+      
       // Analyze attendance issues with enhanced weekend detection
-      const issues = AttendanceAnalyzerService.analyzeAttendanceWithWeekends(employees);
+      const issues = AttendanceAnalyzerService.analyzeAttendanceWithWeekends ? 
+        AttendanceAnalyzerService.analyzeAttendanceWithWeekends(employees) :
+        AttendanceAnalyzerService.analyzeAttendance(employees);
       
       // Generate comprehensive summary
       const summary = AttendanceAnalyzerService.generateSummary(employees, issues);
@@ -40,31 +50,32 @@ class FixedFileController {
           issues: issues,
           summary: summary,
           detailedAnalysis: {
-            lateArrivalSummary: this._generateLateArrivalSummary(issues),
-            dailyAttendanceBreakdown: this._generateDailyBreakdown(issues),
-            attendancePatterns: this._generateAttendancePatterns(issues),
-            weekendAnalysis: this._generateWeekendAnalysis(employees)
+            lateArrivalSummary: FixedFileController._generateLateArrivalSummary(issues),
+            dailyAttendanceBreakdown: FixedFileController._generateDailyBreakdown(issues),
+            attendancePatterns: FixedFileController._generateAttendancePatterns(issues),
+            weekendAnalysis: FixedFileController._generateWeekendAnalysis(employees)
           }
         },
         metadata: {
           filePath: filePath,
-          format: 'Fixed Format (June 2025)',
+          department: 'INN',
+          format: 'WorkDurationReportFourPunch (INN Department Only)',
           employeeCount: employees.length,
           issueCount: issues.length,
-          employeesWithLateArrivals: issues.filter(emp => emp.lateArrivalDetails.totalLateDays > 0).length,
-          totalLateDays: issues.reduce((sum, emp) => sum + emp.lateArrivalDetails.totalLateDays, 0),
+          employeesWithLateArrivals: issues.filter(emp => emp.lateArrivalDetails && emp.lateArrivalDetails.totalLateDays > 0).length,
+          totalLateDays: issues.reduce((sum, emp) => sum + (emp.lateArrivalDetails ? emp.lateArrivalDetails.totalLateDays : 0), 0),
           reportMonth: `${ATTENDANCE_CONFIG.REPORT_MONTH}/${ATTENDANCE_CONFIG.REPORT_YEAR}`,
           processTime: new Date().toISOString()
         },
-        message: `Successfully processed ${employees.length} employees from fixed file`
+        message: `Successfully processed ${employees.length} INN Department employees`
       });
       
     } catch (error) {
-      console.error('Error processing fixed file:', error);
+      console.error('❌ Error processing INN Department file:', error);
       
       res.status(500).json({ 
         success: false,
-        error: 'Error processing fixed file: ' + error.message 
+        error: 'Error processing INN Department file: ' + error.message 
       });
     }
   }
@@ -79,7 +90,7 @@ class FixedFileController {
     const year = ATTENDANCE_CONFIG.REPORT_YEAR;
     
     // Get all weekends for the month
-    for (let day = 1; day <= 30; day++) { // June has 30 days
+    for (let day = 1; day <= 31; day++) { 
       if (UTILS.isWeekend(day, month, year)) {
         weekendDays.push({
           day: day,
@@ -93,7 +104,7 @@ class FixedFileController {
       month: `${month}/${year}`, 
       totalWeekendDays: weekendDays.length,
       weekendDates: weekendDays,
-      workingDays: 30 - weekendDays.length,
+      workingDays: 31 - weekendDays.length,
       note: 'Weekends are automatically excluded from attendance analysis'
     };
   }
@@ -103,7 +114,7 @@ class FixedFileController {
    * @private
    */
   static _generateLateArrivalSummary(issues) {
-    const lateEmployees = issues.filter(emp => emp.lateArrivalDetails.totalLateDays > 0);
+    const lateEmployees = issues.filter(emp => emp.lateArrivalDetails && emp.lateArrivalDetails.totalLateDays > 0);
     
     const summary = {
       totalEmployeesWithLateArrivals: lateEmployees.length,
@@ -120,7 +131,7 @@ class FixedFileController {
           averageLateMinutes: emp.lateArrivalDetails.averageLateMinutes,
           pattern: emp.lateArrivalDetails.pattern
         })),
-      latePatternDistribution: this._calculateLatePatternDistribution(lateEmployees),
+      latePatternDistribution: FixedFileController._calculateLatePatternDistribution(lateEmployees),
       businessRules: {
         lateThreshold: ATTENDANCE_CONFIG.CHECK_IN_TIME,
         earlyDepartureThreshold: ATTENDANCE_CONFIG.CHECK_OUT_TIME,
@@ -212,7 +223,7 @@ class FixedFileController {
     
     issues.forEach(empIssue => {
       // Consecutive late patterns
-      if (empIssue.attendancePattern.maxConsecutiveLate >= 3) {
+      if (empIssue.attendancePattern && empIssue.attendancePattern.maxConsecutiveLate >= 3) {
         patterns.consecutiveLatePatterns.push({
           name: empIssue.employee.name,
           id: empIssue.employee.id,
@@ -222,26 +233,30 @@ class FixedFileController {
       }
       
       // Frequent late employees (more than 30% of working days)
-      const latePercentage = (empIssue.lateArrivalDetails.totalLateDays / empIssue.summary.workingDays) * 100;
-      if (latePercentage > 30) {
-        patterns.frequentLateEmployees.push({
-          name: empIssue.employee.name,
-          id: empIssue.employee.id,
-          latePercentage: Math.round(latePercentage),
-          lateDays: empIssue.lateArrivalDetails.totalLateDays,
-          workingDays: empIssue.summary.workingDays
-        });
+      if (empIssue.lateArrivalDetails && empIssue.summary) {
+        const latePercentage = (empIssue.lateArrivalDetails.totalLateDays / empIssue.summary.workingDays) * 100;
+        if (latePercentage > 30) {
+          patterns.frequentLateEmployees.push({
+            name: empIssue.employee.name,
+            id: empIssue.employee.id,
+            latePercentage: Math.round(latePercentage),
+            lateDays: empIssue.lateArrivalDetails.totalLateDays,
+            workingDays: empIssue.summary.workingDays
+          });
+        }
       }
       
       // Punctuality ranking
-      patterns.punctualityRanking.push({
-        name: empIssue.employee.name,
-        id: empIssue.employee.id,
-        punctualDays: empIssue.attendancePattern.punctualDays,
-        lateDays: empIssue.lateArrivalDetails.totalLateDays,
-        workingDays: empIssue.summary.workingDays,
-        punctualityScore: Math.round((empIssue.attendancePattern.punctualDays / empIssue.summary.workingDays) * 100)
-      });
+      if (empIssue.attendancePattern && empIssue.lateArrivalDetails && empIssue.summary) {
+        patterns.punctualityRanking.push({
+          name: empIssue.employee.name,
+          id: empIssue.employee.id,
+          punctualDays: empIssue.attendancePattern.punctualDays,
+          lateDays: empIssue.lateArrivalDetails.totalLateDays,
+          workingDays: empIssue.summary.workingDays,
+          punctualityScore: Math.round((empIssue.attendancePattern.punctualDays / empIssue.summary.workingDays) * 100)
+        });
+      }
     });
     
     // Sort punctuality ranking

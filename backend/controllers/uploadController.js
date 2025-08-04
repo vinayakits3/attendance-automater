@@ -5,7 +5,7 @@ const AttendanceAnalyzerService = require('../services/attendanceAnalyzer');
 
 class UploadController {
   /**
-   * Upload and process Excel file
+   * Upload and process Excel file with enhanced format support
    */
   static async uploadFile(req, res) {
     try {
@@ -17,23 +17,45 @@ class UploadController {
       }
       
       console.log(`Processing uploaded file: ${req.file.filename}`);
-      const workbook = XLSX.readFile(req.file.path);
       
-      // Check if it's a Four Punch report
+      // Store filename for month/year detection
+      const workbook = XLSX.readFile(req.file.path);
+      workbook.filename = req.file.originalname;
+      
+      // Try different parsing methods based on file structure
+      let employees, issues;
+      let formatDetected = 'Unknown';
+      
+      // Method 1: Check if it's a Four Punch format
       const isFourPunchFormat = ExcelParserService.isFourPunchFormat(workbook);
       
-      let employees, issues;
-      
       if (isFourPunchFormat) {
-        // Parse Four Punch format
+        console.log('Detected Four Punch format');
+        formatDetected = 'Four Punch';
         employees = ExcelParserService.parseFourPunchData(workbook);
       } else {
-        // Try to parse as generic format (flexible parsing)
-        employees = ExcelParserService.parseFourPunchData(workbook);
+        // Method 2: Try Fixed Format (InTime1, OutTime1, InTime2 format)
+        console.log('Trying Fixed Format parsing...');
+        try {
+          employees = ExcelParserService.parseFixedFormatFile(workbook);
+          formatDetected = 'Fixed Format (InTime1/OutTime1/InTime2)';
+          console.log('Successfully parsed as Fixed Format');
+        } catch (fixedFormatError) {
+          console.log('Fixed format parsing failed, trying flexible parsing...');
+          // Method 3: Fall back to flexible parsing
+          employees = ExcelParserService.parseFourPunchData(workbook);
+          formatDetected = 'Flexible/Generic';
+        }
       }
       
-      // Analyze attendance issues
-      issues = AttendanceAnalyzerService.analyzeAttendance(employees);
+      if (!employees || employees.length === 0) {
+        throw new Error('No employee data found in the uploaded file. Please check the file format.');
+      }
+      
+      // Analyze attendance issues with weekend detection
+      issues = AttendanceAnalyzerService.analyzeAttendanceWithWeekends 
+        ? AttendanceAnalyzerService.analyzeAttendanceWithWeekends(employees)
+        : AttendanceAnalyzerService.analyzeAttendance(employees);
       
       // Generate comprehensive summary
       const summary = AttendanceAnalyzerService.generateSummary(employees, issues);
@@ -51,21 +73,28 @@ class UploadController {
           issues: issues,
           summary: summary,
           detailedAnalysis: {
-            lateArrivalSummary: this._generateLateArrivalSummary(issues),
-            dailyAttendanceBreakdown: this._generateDailyBreakdown(issues),
-            attendancePatterns: this._generateAttendancePatterns(issues)
+            lateArrivalSummary: UploadController._generateLateArrivalSummary(issues),
+            dailyAttendanceBreakdown: UploadController._generateDailyBreakdown(issues),
+            attendancePatterns: UploadController._generateAttendancePatterns(issues),
+            weekendAnalysis: UploadController._generateWeekendAnalysis(employees),
+            validationSummary: UploadController._generateValidationSummary(employees)
           }
         },
         metadata: {
-          filename: req.file.filename,
-          format: isFourPunchFormat ? 'Four Punch' : 'Generic',
+          filename: req.file.originalname,
+          format: formatDetected,
           employeeCount: employees.length,
           issueCount: issues.length,
-          employeesWithLateArrivals: issues.filter(emp => emp.lateArrivalDetails.totalLateDays > 0).length,
-          totalLateDays: issues.reduce((sum, emp) => sum + emp.lateArrivalDetails.totalLateDays, 0),
-          uploadTime: new Date().toISOString()
+          employeesWithLateArrivals: issues.filter(emp => emp.lateArrivalDetails && emp.lateArrivalDetails.totalLateDays > 0).length,
+          totalLateDays: issues.reduce((sum, emp) => sum + (emp.lateArrivalDetails ? emp.lateArrivalDetails.totalLateDays : 0), 0),
+          uploadTime: new Date().toISOString(),
+          businessRules: {
+            lateThreshold: '10:01',
+            earlyDepartureThreshold: '18:30',
+            weekendsAutoExcluded: true
+          }
         },
-        message: `Successfully processed ${employees.length} employees with detailed attendance analysis`
+        message: `Successfully processed ${employees.length} employees with ${formatDetected} format`
       });
       
     } catch (error) {
@@ -83,6 +112,98 @@ class UploadController {
         error: 'Error processing file: ' + error.message 
       });
     }
+  }
+
+
+  /**
+   * Generate weekend analysis for uploaded files
+   * @private
+   */
+  static _generateWeekendAnalysis(employees) {
+    if (!employees || employees.length === 0) return null;
+    
+    const firstEmployee = employees[0];
+    if (!firstEmployee.dailyData || firstEmployee.dailyData.length === 0) return null;
+    
+    const weekendDays = firstEmployee.dailyData.filter(day => day.isWeekend || day.status === 'WO');
+    const workingDays = firstEmployee.dailyData.filter(day => !day.isWeekend && day.status !== 'WO');
+    
+    return {
+      totalDays: firstEmployee.dailyData.length,
+      weekendDays: weekendDays.length,
+      workingDays: workingDays.length,
+      weekends: weekendDays.map(day => ({
+        day: day.day,
+        dayName: day.dayType,
+        status: day.status
+      })),
+      note: 'Weekends (Saturdays and Sundays) are automatically marked as WO (Weekend Off)'
+    };
+  }
+
+  /**
+   * Generate validation summary based on user's criteria
+   * @private
+   */
+  static _generateValidationSummary(employees) {
+    let totalValidDays = 0;
+    let totalInvalidDays = 0;
+    let earlyArrivals = 0;
+    let lateArrivals = 0;
+    let earlyDepartures = 0;
+    let validAttendance = 0;
+    
+    employees.forEach(employee => {
+      if (employee.dailyData) {
+        employee.dailyData.forEach(day => {
+          if (!day.isWeekend && day.status === 'P') {
+            const { UTILS } = require('../utils/constants');
+            
+            // Check punch-in time (should be before 10:01)
+            if (day.inTime1) {
+              if (UTILS.isValidPunchIn(day.inTime1)) {
+                earlyArrivals++;
+              } else {
+                lateArrivals++;
+              }
+            }
+            
+            // Check punch-out time (should be after 18:30)
+            let hasValidPunchOut = false;
+            if (day.outTime1 && UTILS.isValidPunchOut(day.outTime1)) hasValidPunchOut = true;
+            if (day.outTime2 && UTILS.isValidPunchOut(day.outTime2)) hasValidPunchOut = true;
+            if (day.inTime2 && UTILS.isValidPunchOut(day.inTime2)) hasValidPunchOut = true;
+            
+            if (!hasValidPunchOut) {
+              earlyDepartures++;
+            }
+            
+            // Overall validation
+            if (day.isValidAttendance) {
+              validAttendance++;
+              totalValidDays++;
+            } else {
+              totalInvalidDays++;
+            }
+          }
+        });
+      }
+    });
+    
+    return {
+      totalValidDays,
+      totalInvalidDays,
+      earlyArrivals,
+      lateArrivals,
+      earlyDepartures,
+      validAttendance,
+      validationRules: {
+        punchInBefore: '10:01',
+        punchOutAfter: '18:30',
+        handleMultiplePunches: 'First punch-in, last punch-out',
+        weekendHandling: 'Automatically marked as WO'
+      }
+    };
   }
 
   /**
@@ -107,7 +228,7 @@ class UploadController {
           averageLateMinutes: emp.lateArrivalDetails.averageLateMinutes,
           pattern: emp.lateArrivalDetails.pattern
         })),
-      latePatternDistribution: this._calculateLatePatternDistribution(lateEmployees)
+      latePatternDistribution: UploadController._calculateLatePatternDistribution(lateEmployees)
     };
     
     return summary;

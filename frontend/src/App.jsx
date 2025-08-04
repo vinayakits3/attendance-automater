@@ -152,6 +152,7 @@ function App() {
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
         onDrop={handleDropFile}
+        onUploadClick={handleUploadClick}
       />
 
       {/* Trusted Partners */}

@@ -5,7 +5,7 @@ import './Upload.css';
 /**
  * Upload Section Component
  */
-const const Upload = ({ 
+const Upload = ({ 
   dragActive = false,
   loading = false,
   error = null,
@@ -59,25 +59,6 @@ const const Upload = ({
                   </div>
                 </div>
               </>
-            )}
-          </div>
-        </div>
-        
-        {error && (
-          <div className="upload-error">
-            ❌ {error}
-          </div>
-        )}
-        
-        {message && (
-          <div className="upload-message">
-            ✅ {message}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-};
             )}
           </div>
         </div>

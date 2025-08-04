@@ -47,6 +47,216 @@ class AttendanceAnalyzerService {
     employees.forEach(employee => {
       const employeeIssues = this._analyzeEmployeeAttendanceWithWeekends(employee, UTILS);
       
+      if (employeeIssues.issues.length > 0 || employeeIssues.lateArrivalDetails.totalLateDays > 0) {
+        issues.push({
+          employee: {
+            id: employee.id,
+            name: employee.name,
+            department: employee.department
+          },
+          issues: employeeIssues.issues,
+          summary: employeeIssues.summary,
+          dailyBreakdown: employeeIssues.dailyBreakdown,
+          lateArrivalDetails: employeeIssues.lateArrivalDetails,
+          attendancePattern: employeeIssues.attendancePattern
+        });
+      }
+    });
+    
+    console.log(`Analysis complete. ${issues.length} employees with issues found.`);
+    return issues;
+  }
+
+  /**
+   * Analyze individual employee attendance with weekend logic
+   * @private
+   */
+  static _analyzeEmployeeAttendanceWithWeekends(employee, UTILS) {
+    const issues = [];
+    const dailyBreakdown = [];
+    const lateArrivalDetails = {
+      totalLateDays: 0,
+      totalLateMinutes: 0,
+      lateDays: [],
+      pattern: 'Occasional',
+      averageLateMinutes: 0
+    };
+    
+    let punctualDays = 0;
+    let maxConsecutiveLate = 0;
+    let currentConsecutiveLate = 0;
+    let workingDays = 0;
+    let presentDays = 0;
+    let absentDays = 0;
+    
+    if (employee.dailyData && employee.dailyData.length > 0) {
+      employee.dailyData.forEach(day => {
+        const dayIssues = [];
+        let isLate = false;
+        let lateMinutes = 0;
+        
+        // Skip weekends for analysis
+        if (day.isWeekend || day.status === 'WO') {
+          dailyBreakdown.push({
+            day: day.day,
+            dayType: day.dayType,
+            status: 'WO',
+            issues: [],
+            isLate: false,
+            lateMinutes: 0
+          });
+          return;
+        }
+        
+        workingDays++;
+        
+        if (day.status === 'A') {
+          absentDays++;
+          dayIssues.push({
+            type: ISSUE_TYPES.ABSENT,
+            message: 'Employee was absent',
+            severity: SEVERITY_LEVELS.HIGH
+          });
+        } else if (day.status === 'P') {
+          presentDays++;
+          
+          // Check punch-in time (before 10:01)
+          if (day.inTime1) {
+            if (!UTILS.isValidPunchIn(day.inTime1)) {
+              isLate = true;
+              lateMinutes = this._calculateLateMinutes(day.inTime1, ATTENDANCE_CONFIG.CHECK_IN_TIME);
+              lateArrivalDetails.totalLateDays++;
+              lateArrivalDetails.totalLateMinutes += lateMinutes;
+              lateArrivalDetails.lateDays.push({
+                day: day.day,
+                time: day.inTime1,
+                lateMinutes: lateMinutes
+              });
+              
+              dayIssues.push({
+                type: ISSUE_TYPES.LATE_ARRIVAL,
+                message: `Late arrival at ${day.inTime1} (should be before ${ATTENDANCE_CONFIG.CHECK_IN_TIME})`,
+                severity: lateMinutes > 30 ? SEVERITY_LEVELS.HIGH : SEVERITY_LEVELS.MEDIUM
+              });
+              
+              currentConsecutiveLate++;
+              maxConsecutiveLate = Math.max(maxConsecutiveLate, currentConsecutiveLate);
+            } else {
+              punctualDays++;
+              currentConsecutiveLate = 0;
+            }
+          } else {
+            dayIssues.push({
+              type: ISSUE_TYPES.MISSING_PUNCH_IN,
+              message: 'Missing punch-in time',
+              severity: SEVERITY_LEVELS.HIGH
+            });
+          }
+          
+          // Check punch-out time (after 18:30)
+          let hasValidPunchOut = false;
+          let punchOutTime = null;
+          
+          if (day.outTime2 && UTILS.isValidPunchOut(day.outTime2)) {
+            hasValidPunchOut = true;
+            punchOutTime = day.outTime2;
+          } else if (day.inTime2 && UTILS.isValidPunchOut(day.inTime2)) {
+            hasValidPunchOut = true;
+            punchOutTime = day.inTime2;
+          } else if (day.outTime1 && UTILS.isValidPunchOut(day.outTime1)) {
+            hasValidPunchOut = true;
+            punchOutTime = day.outTime1;
+          }
+          
+          if (!hasValidPunchOut) {
+            if (punchOutTime) {
+              dayIssues.push({
+                type: ISSUE_TYPES.EARLY_DEPARTURE,
+                message: `Early departure at ${punchOutTime} (should be after ${ATTENDANCE_CONFIG.CHECK_OUT_TIME})`,
+                severity: SEVERITY_LEVELS.HIGH
+              });
+            } else {
+              dayIssues.push({
+                type: ISSUE_TYPES.MISSING_PUNCH_OUT,
+                message: 'Missing valid punch-out time',
+                severity: SEVERITY_LEVELS.HIGH
+              });
+            }
+          }
+        }
+        
+        issues.push(...dayIssues);
+        
+        dailyBreakdown.push({
+          day: day.day,
+          dayType: day.dayType,
+          status: day.status,
+          issues: dayIssues,
+          isLate: isLate,
+          lateMinutes: lateMinutes
+        });
+      });
+    }
+    
+    // Calculate late arrival patterns
+    if (lateArrivalDetails.totalLateDays > 0) {
+      lateArrivalDetails.averageLateMinutes = Math.round(
+        lateArrivalDetails.totalLateMinutes / lateArrivalDetails.totalLateDays
+      );
+      
+      if (lateArrivalDetails.totalLateDays >= 10) {
+        lateArrivalDetails.pattern = 'Chronic';
+      } else if (lateArrivalDetails.totalLateDays >= 5) {
+        lateArrivalDetails.pattern = 'Frequent';
+      } else {
+        lateArrivalDetails.pattern = 'Occasional';
+      }
+    }
+    
+    return {
+      issues: issues,
+      summary: {
+        workingDays: workingDays,
+        presentDays: presentDays,
+        absentDays: absentDays,
+        lateArrivals: lateArrivalDetails.totalLateDays
+      },
+      dailyBreakdown: dailyBreakdown,
+      lateArrivalDetails: lateArrivalDetails,
+      attendancePattern: {
+        punctualDays: punctualDays,
+        maxConsecutiveLate: maxConsecutiveLate
+      }
+    };
+  }
+
+  /**
+   * Calculate late minutes
+   * @private
+   */
+  static _calculateLateMinutes(actualTime, expectedTime) {
+    const [actualHours, actualMinutes] = actualTime.split(':').map(Number);
+    const [expectedHours, expectedMinutes] = expectedTime.split(':').map(Number);
+    
+    const actualTotalMinutes = actualHours * 60 + actualMinutes;
+    const expectedTotalMinutes = expectedHours * 60 + expectedMinutes;
+    
+    return Math.max(0, actualTotalMinutes - expectedTotalMinutes);
+  }
+
+  /**
+   * Analyze attendance data with enhanced weekend detection
+   * @param {Array} employees - Array of employee data
+   * @returns {Array} Array of employees with issues
+   */
+  static analyzeAttendanceWithWeekends(employees) {
+    console.log('Analyzing attendance with weekend detection...');
+    const { UTILS, ATTENDANCE_CONFIG } = require('../utils/constants');
+    const issues = [];
+    
+    employees.forEach(employee => {
+      const employeeIssues = this._analyzeEmployeeAttendanceWithWeekends(employee, UTILS);
+      
       if (employeeIssues.issues.length > 0) {
         issues.push({
           employee: {

@@ -20,7 +20,7 @@ const Hero = ({
               <span className="highlight">That Works</span>
             </h1>
             <p className="hero-subhead">
-              Upload your Excel attendance files and get instant analysis with intelligent issue detection and automated reporting.
+              Upload your Excel attendance files and get instant analysis for INN Department with intelligent issue detection and automated reporting.
             </p>
             <div className="hero-buttons">
               <Button 
@@ -37,7 +37,7 @@ const Hero = ({
                 onClick={onProcessFixedFile}
                 disabled={loading}
               >
-                Process Fixed File
+                Process INN Department
               </Button>
             </div>
           </div>
