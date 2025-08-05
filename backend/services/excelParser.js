@@ -465,7 +465,7 @@ class ExcelParserService {
    * @private
    */
   static _calculateAttendanceStatus(inTime1, outTime1, inTime2, outTime2, isWeekend, day, dayName, UTILS) {
-    console.log(`   🔧 PUNCH-BASED LOGIC: Day ${day} (${dayName})`);
+    console.log(`   🔧 DURATION-BASED LOGIC: Day ${day} (${dayName})`);
     
     // 1. Weekend Detection - Automatic WO (Weekend Off)
     if (isWeekend) {
@@ -473,7 +473,7 @@ class ExcelParserService {
       return 'WO';
     }
     
-    // 2. NEW PUNCH-BASED LOGIC FOR INN DEPARTMENT
+    // 2. NEW DURATION-BASED LOGIC FOR INN DEPARTMENT
     // Collect all punch times from the day
     const allPunchTimes = [inTime1, outTime1, inTime2, outTime2]
       .filter(time => time && time.trim() !== '') // Remove empty/null times
@@ -495,35 +495,23 @@ class ExcelParserService {
     
     console.log(`   ✅ Valid unique punch times: [${uniquePunchTimes.join(', ')}]`);
     
-    // 3. NEW ATTENDANCE DETERMINATION LOGIC
-    if (uniquePunchTimes.length === 0) {
-      // NO PUNCH TIMES = ABSENT
-      console.log(`   ❌ Day ${day} (${dayName}): No valid punch times → A (Absent)`);
-      return 'A';
+    // 3. USE NEW DURATION-BASED ATTENDANCE DETERMINATION
+    const attendanceResult = UTILS.calculatePunchBasedStatus(uniquePunchTimes, isWeekend);
+    
+    // Log the detailed result
+    if (attendanceResult.isPresent) {
+      const { timingCategory, workDuration, requiredHours, isFullDay, dayType } = attendanceResult;
+      console.log(`   ✅ Day ${day} (${dayName}): ${dayType} - ${timingCategory} timing`);
+      console.log(`      Duration: ${workDuration.toFixed(2)}h (Required: ${requiredHours}h)`);
+      console.log(`      First punch: ${attendanceResult.firstPunch}, Last punch: ${attendanceResult.lastPunch}`);
+    } else {
+      console.log(`   ❌ Day ${day} (${dayName}): ${attendanceResult.status} - ${attendanceResult.note}`);
     }
     
-    // HAS PUNCH TIMES = PRESENT
-    const firstPunch = uniquePunchTimes[0]; // Minimum (earliest) time
-    const lastPunch = uniquePunchTimes[uniquePunchTimes.length - 1]; // Maximum (latest) time
-    
-    // Check late arrival (MIN time > 10:01)
-    const isLate = UTILS.isTimeAfter(firstPunch, ATTENDANCE_CONFIG.CHECK_IN_TIME);
-    
-    // Check early departure (MAX time < 18:15)  
-    const isEarlyDeparture = UTILS.isTimeBefore(lastPunch, ATTENDANCE_CONFIG.CHECK_OUT_TIME);
-    
-    let statusNote = '';
-    if (isLate) {
-      const lateMinutes = UTILS.calculateLateMinutesPunchBased(firstPunch, ATTENDANCE_CONFIG.CHECK_IN_TIME);
-      statusNote += ` (Late by ${lateMinutes} min)`;
-    }
-    if (isEarlyDeparture) {
-      statusNote += ` (Early departure)`;
-    }
-    
-    console.log(`   ✅ Day ${day} (${dayName}): ${uniquePunchTimes.length} punches (${firstPunch} to ${lastPunch}) → P (Present${statusNote})`);
-    
-    return 'P'; // Present (issues will be caught by attendance analyzer)
+    // Return the status - could be 'P', 'A', or 'WO'
+    // Note: The detailed information (Full Day vs Half Day) is available in attendanceResult
+    // but for now we return the basic status. The analyzer will use the detailed info.
+    return attendanceResult.status;
   }
 
   /**

@@ -20,21 +20,32 @@ const ATTENDANCE_CONFIG = {
     END_INDEX: 35
   },
   
-  // NEW ATTENDANCE CRITERIA (PUNCH-BASED)
+  // NEW ATTENDANCE CRITERIA (PUNCH-BASED) - UPDATED WITH DURATION-BASED RULES
   PRESENCE_RULE: 'AT_LEAST_ONE_PUNCH', // At least 1 punch time = Present
   ABSENCE_RULE: 'NO_PUNCH_TIMES', // No punch times = Absent
-  LATE_RULE: 'MIN_TIME_AFTER_1001', // MIN time > 10:01 = Late
-  FULL_DAY_RULE: 'MAX_TIME_AFTER_1815', // MAX time > 18:15 = Full day
-  EARLY_DEPARTURE_RULE: 'MAX_TIME_BEFORE_1815', // MAX time < 18:15 = Early departure
+  
+  // NEW TIMING CATEGORY RULES
+  REGULAR_TIMING_START: '09:30', // Regular timing window start
+  REGULAR_TIMING_END: '10:01',   // Regular timing window end
+  REGULAR_REQUIRED_HOURS: 8.75,  // 8 hours 45 minutes for regular timing
+  UNUSUAL_REQUIRED_HOURS: 9,     // 9 hours for unusual timing
+  
+  // TIMING DETERMINATION RULE
+  TIMING_RULE: 'FIRST_PUNCH_DETERMINES_CATEGORY', // First punch determines Regular vs Unusual timing
+  DURATION_RULE: 'FIRST_TO_LAST_PUNCH', // Duration = last punch - first punch
+  
+  // STATUS DETERMINATION
+  FULL_DAY_RULE: 'MEETS_REQUIRED_HOURS', // Full day if duration >= required hours
+  HALF_DAY_RULE: 'BELOW_REQUIRED_HOURS', // Half day if duration < required hours
   
   MAX_MORNING_PUNCHES: 2,
   SEVERITY_THRESHOLD_MINUTES: 30,
   REPORT_MONTH: 7, // July (will be auto-detected from file)
   REPORT_YEAR: 2025, // Will be auto-detected from file
   
-  // CORE SYSTEM IDENTITY - INN DEPARTMENT + WEEKDAYS ONLY + PUNCH BASED
-  SYSTEM_NAME: 'INN Department Weekdays-Only Punch-Based Attendance Automater',
-  SYSTEM_DESCRIPTION: 'Dedicated attendance system for INN department employees. Calculates attendance based on actual punch times (not status codes). Processes only weekdays (Monday-Friday). Weekend days are automatically excluded.',
+  // CORE SYSTEM IDENTITY - INN DEPARTMENT + WEEKDAYS ONLY + DURATION-BASED PUNCH LOGIC
+  SYSTEM_NAME: 'INN Department Duration-Based Punch Attendance Automater',
+  SYSTEM_DESCRIPTION: 'Advanced attendance system for INN department with duration-based Full/Half day determination. Regular timing (9:30-10:01 AM) requires 8h45m, Unusual timing requires 9h. Uses first-to-last punch duration calculation. Processes only weekdays.',
   DEPARTMENT_FOCUS: 'INN_ONLY', // System is exclusively dedicated to INN department
   WORKING_DAYS: 'WEEKDAYS_ONLY', // Only Monday-Friday count as working days
   WEEKEND_POLICY: 'AUTO_EXCLUDE', // Automatically exclude weekends from all calculations
@@ -55,7 +66,7 @@ const ATTENDANCE_CONFIG = {
   PROCESSING_NOTE: 'This system exclusively processes INN department employees using punch-based attendance calculation. Only weekdays (Monday-Friday) are counted. Attendance is determined by actual punch times in columns C to AJ, not status codes.',
   WEEKEND_NOTE: 'Weekend days (Saturday, Sunday) are automatically excluded from all attendance analysis.',
   DEPARTMENT_NOTE: 'This system is dedicated to INN department only. Processing stops at row 905 where another department begins.',
-  PUNCH_LOGIC_NOTE: 'Attendance calculated from punch times: Present = at least 1 punch, Absent = no punches, Late = MIN time > 10:01, Full day = MAX time > 18:15.'
+  PUNCH_LOGIC_NOTE: 'Duration-based attendance: Regular timing (9:30-10:01 AM) needs 8h45m for Full Day, Unusual timing needs 9h. Duration = last punch - first punch. Below required hours = Half Day.'
 };
 
 const FILE_CONFIG = {
@@ -309,7 +320,7 @@ const UTILS = {
   },
 
   /**
-   * Calculate punch-based attendance status for INN department
+   * Calculate punch-based attendance status with duration-based Full/Half day determination
    * @param {Array} punchTimes - Array of punch times for the day
    * @param {boolean} isWeekend - Whether the day is a weekend
    * @returns {Object} - Attendance status object
@@ -320,8 +331,10 @@ const UTILS = {
       return {
         status: 'WO',
         isPresent: false,
-        isLate: false,
-        isEarlyDeparture: false,
+        timingCategory: null,
+        workDuration: 0,
+        requiredHours: 0,
+        isFullDay: false,
         note: 'Weekend - excluded from attendance calculation'
       };
     }
@@ -331,32 +344,46 @@ const UTILS = {
       return {
         status: 'A',
         isPresent: false,
-        isLate: false,
-        isEarlyDeparture: false,
+        timingCategory: null,
+        workDuration: 0,
+        requiredHours: 0,
+        isFullDay: false,
         note: 'No punch times found - Absent'
       };
     }
 
-    // Has punch times = Present
+    // Has punch times = Present, now determine Full Day vs Half Day
     const sortedTimes = [...punchTimes].sort();
-    const firstPunch = sortedTimes[0]; // Minimum (earliest) time
-    const lastPunch = sortedTimes[sortedTimes.length - 1]; // Maximum (latest) time
+    const firstPunch = sortedTimes[0]; // Check-in time
+    const lastPunch = sortedTimes[sortedTimes.length - 1]; // Check-out time
 
-    // Check for late arrival (MIN time > 10:01)
-    const isLate = UTILS.isTimeAfter(firstPunch, ATTENDANCE_CONFIG.CHECK_IN_TIME);
+    // Determine timing category based on first punch time
+    const timingCategory = UTILS.determineTimingCategory(firstPunch);
     
-    // Check for early departure (MAX time < 18:15)
-    const isEarlyDeparture = UTILS.isTimeBefore(lastPunch, ATTENDANCE_CONFIG.CHECK_OUT_TIME);
+    // Calculate work duration (first punch to last punch)
+    const workDuration = UTILS.calculateWorkDuration(firstPunch, lastPunch);
+    
+    // Get required hours based on timing category
+    const requiredHours = timingCategory === 'REGULAR' 
+      ? ATTENDANCE_CONFIG.REGULAR_REQUIRED_HOURS 
+      : ATTENDANCE_CONFIG.UNUSUAL_REQUIRED_HOURS;
+    
+    // Determine if it's a full day or half day
+    const isFullDay = workDuration >= requiredHours;
+    const dayType = isFullDay ? 'Full Day' : 'Half Day';
 
     return {
       status: 'P',
       isPresent: true,
-      isLate: isLate,
-      isEarlyDeparture: isEarlyDeparture,
+      timingCategory: timingCategory,
+      workDuration: workDuration,
+      requiredHours: requiredHours,
+      isFullDay: isFullDay,
+      dayType: dayType,
       firstPunch: firstPunch,
       lastPunch: lastPunch,
       totalPunches: punchTimes.length,
-      note: `Present with ${punchTimes.length} punches (${firstPunch} to ${lastPunch})`,
+      note: `${dayType} - ${timingCategory} timing (${workDuration.toFixed(2)}h of ${requiredHours}h required)`,
       punchTimes: punchTimes
     };
   },
@@ -413,6 +440,88 @@ const UTILS = {
     const expectedMinutes = eh * 60 + em;
     
     return Math.max(0, actualMinutes - expectedMinutes);
+  },
+
+  /**
+   * Determine timing category based on first punch time
+   * @param {string} firstPunchTime - First punch time of the day (HH:MM)
+   * @returns {string} - 'REGULAR' or 'UNUSUAL'
+   */
+  determineTimingCategory: (firstPunchTime) => {
+    if (!firstPunchTime) return 'UNUSUAL';
+    
+    const regularStart = ATTENDANCE_CONFIG.REGULAR_TIMING_START; // '09:30'
+    const regularEnd = ATTENDANCE_CONFIG.REGULAR_TIMING_END;     // '10:01'
+    
+    // Check if first punch is within regular timing window (9:30 AM - 10:01 AM)
+    const isAfterRegularStart = UTILS.isTimeAfter(firstPunchTime, regularStart) || firstPunchTime === regularStart;
+    const isBeforeRegularEnd = UTILS.isTimeBefore(firstPunchTime, regularEnd) || firstPunchTime === regularEnd;
+    
+    return (isAfterRegularStart && isBeforeRegularEnd) ? 'REGULAR' : 'UNUSUAL';
+  },
+
+  /**
+   * Calculate work duration in hours from first punch to last punch
+   * @param {string} firstPunch - First punch time (HH:MM)
+   * @param {string} lastPunch - Last punch time (HH:MM)
+   * @returns {number} - Work duration in hours (decimal)
+   */
+  calculateWorkDuration: (firstPunch, lastPunch) => {
+    if (!firstPunch || !lastPunch) return 0;
+    
+    const [fh, fm] = firstPunch.split(':').map(Number);
+    const [lh, lm] = lastPunch.split(':').map(Number);
+    
+    const firstMinutes = fh * 60 + fm;
+    const lastMinutes = lh * 60 + lm;
+    
+    // Calculate difference in minutes
+    let durationMinutes = lastMinutes - firstMinutes;
+    
+    // Handle case where last punch is next day (unlikely but possible)
+    if (durationMinutes < 0) {
+      durationMinutes += 24 * 60; // Add 24 hours
+    }
+    
+    // Convert to hours (decimal)
+    return durationMinutes / 60;
+  },
+
+  /**
+   * Convert decimal hours to hours and minutes format
+   * @param {number} decimalHours - Duration in decimal hours
+   * @returns {string} - Formatted duration (e.g., "8h 45m")
+   */
+  formatDuration: (decimalHours) => {
+    if (!decimalHours || decimalHours <= 0) return '0h 0m';
+    
+    const hours = Math.floor(decimalHours);
+    const minutes = Math.round((decimalHours - hours) * 60);
+    
+    return `${hours}h ${minutes}m`;
+  },
+
+  /**
+   * Get timing category details for display
+   * @param {string} category - 'REGULAR' or 'UNUSUAL'
+   * @returns {Object} - Category details
+   */
+  getTimingCategoryDetails: (category) => {
+    if (category === 'REGULAR') {
+      return {
+        name: 'Regular Timing',
+        window: '9:30 AM - 10:01 AM',
+        requiredHours: ATTENDANCE_CONFIG.REGULAR_REQUIRED_HOURS,
+        requiredDuration: UTILS.formatDuration(ATTENDANCE_CONFIG.REGULAR_REQUIRED_HOURS)
+      };
+    } else {
+      return {
+        name: 'Unusual Timing',
+        window: 'Before 9:30 AM or After 10:01 AM',
+        requiredHours: ATTENDANCE_CONFIG.UNUSUAL_REQUIRED_HOURS,
+        requiredDuration: UTILS.formatDuration(ATTENDANCE_CONFIG.UNUSUAL_REQUIRED_HOURS)
+      };
+    }
   }
 };
 

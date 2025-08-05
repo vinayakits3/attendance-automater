@@ -50,8 +50,10 @@ class AttendanceController {
         });
       }
       
-      // Analyze attendance issues - WEEKDAYS ONLY
-      const issues = AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly ?
+      // Analyze attendance issues - NEW DURATION-BASED LOGIC
+      const issues = AttendanceAnalyzerService.analyzeAttendanceDurationBased ?
+        AttendanceAnalyzerService.analyzeAttendanceDurationBased(innEmployees) :
+        AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly ?
         AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly(innEmployees) :
         AttendanceAnalyzerService.analyzeAttendance(innEmployees);
       
@@ -79,20 +81,23 @@ class AttendanceController {
           weekendPolicy: 'Automatically Excluded',
           calculationMethod: ATTENDANCE_CONFIG.CALCULATION_METHOD,
           attendanceLogic: 'Punch-Based (not status-based)',
-          punchBasedRules: {
+          durationBasedRules: {
             presence: ATTENDANCE_CONFIG.PRESENCE_RULE,
             absence: ATTENDANCE_CONFIG.ABSENCE_RULE,
-            lateArrival: ATTENDANCE_CONFIG.LATE_RULE,
-            fullDay: ATTENDANCE_CONFIG.FULL_DAY_RULE,
-            checkInTime: ATTENDANCE_CONFIG.CHECK_IN_TIME,
-            checkOutTime: ATTENDANCE_CONFIG.CHECK_OUT_TIME
+            regularTimingWindow: `${ATTENDANCE_CONFIG.REGULAR_TIMING_START} - ${ATTENDANCE_CONFIG.REGULAR_TIMING_END}`,
+            regularRequiredHours: ATTENDANCE_CONFIG.REGULAR_REQUIRED_HOURS,
+            unusualRequiredHours: ATTENDANCE_CONFIG.UNUSUAL_REQUIRED_HOURS,
+            timingRule: ATTENDANCE_CONFIG.TIMING_RULE,
+            durationRule: ATTENDANCE_CONFIG.DURATION_RULE,
+            fullDayRule: ATTENDANCE_CONFIG.FULL_DAY_RULE,
+            halfDayRule: ATTENDANCE_CONFIG.HALF_DAY_RULE
           },
           columnRange: `${ATTENDANCE_CONFIG.ATTENDANCE_COLUMNS.START} to ${ATTENDANCE_CONFIG.ATTENDANCE_COLUMNS.END}`,
           employeesProcessed: innEmployees.length,
           processingNote: ATTENDANCE_CONFIG.PROCESSING_NOTE,
           punchLogicNote: ATTENDANCE_CONFIG.PUNCH_LOGIC_NOTE
         },
-        message: `Successfully processed ${innEmployees.length} INN department employees using punch-based logic (weekdays only)`
+        message: `Successfully processed ${innEmployees.length} INN department employees using duration-based logic (Regular: 9:30-10:01 AM = 8h45m, Unusual: other times = 9h)`
       });
       
     } catch (error) {
@@ -122,7 +127,9 @@ class AttendanceController {
       
       const workbook = XLSX.readFile(ATTENDANCE_CONFIG.EXCEL_FILE_PATH);
       const innEmployees = ExcelParserService.parseINNDepartmentData(workbook);
-      const issues = AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly ?
+      const issues = AttendanceAnalyzerService.analyzeAttendanceDurationBased ?
+        AttendanceAnalyzerService.analyzeAttendanceDurationBased(innEmployees) :
+        AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly ?
         AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly(innEmployees) :
         AttendanceAnalyzerService.analyzeAttendance(innEmployees);
       const summary = AttendanceAnalyzerService.generateSummary(

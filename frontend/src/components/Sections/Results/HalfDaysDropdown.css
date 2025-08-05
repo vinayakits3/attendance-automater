@@ -1,0 +1,531 @@
+/* Half Days Dropdown Styles */
+.half-days-dropdown {
+  margin: 10px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.half-days-dropdown:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Dropdown Trigger Button */
+.half-days-dropdown .dropdown-trigger {
+  width: 100%;
+  background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+  border: 2px solid #ffb74d;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-radius: 8px;
+  font-family: inherit;
+}
+
+.half-days-dropdown .dropdown-trigger:hover {
+  background: linear-gradient(135deg, #ffecb3 0%, #ffb74d 100%);
+  border-color: #f57c00;
+  transform: translateY(-1px);
+}
+
+.half-days-dropdown .dropdown-trigger.open {
+  background: linear-gradient(135deg, #f57c00 0%, #e65100 100%);
+  color: white;
+  border-color: #e65100;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Trigger Content Layout */
+.trigger-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trigger-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.trigger-icon .icon {
+  font-size: 20px;
+  filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+.trigger-icon .count-badge {
+  background: #f57c00;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.dropdown-trigger.open .trigger-icon .count-badge {
+  background: rgba(255, 255, 255, 0.9);
+  color: #f57c00;
+}
+
+/* Trigger Text */
+.trigger-text {
+  flex: 1;
+  text-align: left;
+}
+
+.trigger-text .primary-text {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.trigger-text .secondary-text {
+  display: block;
+  font-size: 12px;
+  opacity: 0.8;
+  font-weight: 400;
+}
+
+.dropdown-trigger.open .trigger-text {
+  color: white;
+}
+
+/* Trigger Arrow */
+.trigger-arrow {
+  font-size: 12px;
+  font-weight: bold;
+  transition: transform 0.3s ease;
+  opacity: 0.7;
+}
+
+.dropdown-trigger.open .trigger-arrow {
+  transform: rotate(180deg);
+  opacity: 1;
+}
+
+/* Dropdown Content */
+.dropdown-content {
+  background: white;
+  border: 2px solid #f57c00;
+  border-top: none;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Dropdown Header */
+.dropdown-header {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #ffecb3 0%, #ffb74d 100%);
+  border-bottom: 1px solid #ff9800;
+}
+
+.dropdown-header h4 {
+  margin: 0 0 12px 0;
+  color: #e65100;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Summary Statistics */
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.summary-stats .stat {
+  text-align: center;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 124, 0, 0.2);
+}
+
+.summary-stats .stat-value {
+  display: block;
+  font-size: 18px;
+  font-weight: bold;
+  color: #e65100;
+  margin-bottom: 2px;
+}
+
+.summary-stats .stat-label {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Pattern Severity Styles */
+.stat-value.pattern-critical {
+  color: #d32f2f !important;
+}
+
+.stat-value.pattern-high {
+  color: #f57c00 !important;
+}
+
+.stat-value.pattern-medium {
+  color: #fbc02d !important;
+}
+
+.stat-value.pattern-low {
+  color: #388e3c !important;
+}
+
+/* Half Days List */
+.half-days-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* List Header */
+.list-header {
+  display: grid;
+  grid-template-columns: 80px 120px 100px 100px 1fr;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #f5f5f5;
+  border-bottom: 2px solid #e0e0e0;
+  font-weight: 600;
+  font-size: 12px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Half Day Rows */
+.half-day-row {
+  display: grid;
+  grid-template-columns: 80px 120px 100px 100px 1fr;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background-color 0.2s ease;
+  align-items: center;
+}
+
+.half-day-row:hover {
+  background-color: #fafafa;
+}
+
+/* Row Column Styles */
+.col-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.day-number {
+  font-size: 16px;
+  font-weight: bold;
+  color: #f57c00;
+}
+
+.day-type {
+  font-size: 10px;
+  color: #666;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.col-timing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 12px;
+}
+
+.arrival-time {
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 2px;
+}
+
+.departure-time {
+  color: #666;
+  font-size: 11px;
+}
+
+.col-hours,
+.col-required {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.work-hours,
+.required-hours {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f57c00;
+  margin-bottom: 2px;
+}
+
+.hours-label,
+.required-label {
+  font-size: 10px;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.col-reason {
+  text-align: center;
+}
+
+/* Half Day Type Indicators */
+.reason-indicator {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.halfday-insufficient .reason-indicator,
+.reason-indicator:contains("Insufficient") {
+  background-color: #ffecb3;
+  color: #e65100;
+  border: 1px solid #ffb74d;
+}
+
+.halfday-timing .reason-indicator,
+.reason-indicator:contains("Unusual") {
+  background-color: #fff3e0;
+  color: #ef6c00;
+  border: 1px solid #ff9800;
+}
+
+.halfday-early .reason-indicator,
+.reason-indicator:contains("Early") {
+  background-color: #e8f5e8;
+  color: #2e7d32;
+  border: 1px solid #66bb6a;
+}
+
+.halfday-general .reason-indicator {
+  background-color: #f3e5f5;
+  color: #7b1fa2;
+  border: 1px solid #ba68c8;
+}
+
+/* Row Type Styling */
+.half-day-row.halfday-insufficient {
+  border-left: 4px solid #ff9800;
+}
+
+.half-day-row.halfday-timing {
+  border-left: 4px solid #ef6c00;
+}
+
+.half-day-row.halfday-early {
+  border-left: 4px solid #4caf50;
+}
+
+.half-day-row.halfday-general {
+  border-left: 4px solid #9c27b0;
+}
+
+/* Business Rules Section */
+.business-rules {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+  border-top: 1px solid #ba68c8;
+}
+
+.rules-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.rules-icon {
+  font-size: 20px;
+  margin-top: 2px;
+}
+
+.rules-details strong {
+  display: block;
+  color: #7b1fa2;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rule-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.rule-condition {
+  color: #4a148c;
+  font-weight: 500;
+}
+
+.rule-requirement {
+  color: #7b1fa2;
+  font-weight: 600;
+}
+
+/* Pattern Analysis */
+.pattern-analysis {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border-top: 1px solid #ffcc02;
+}
+
+.pattern-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.pattern-icon {
+  font-size: 20px;
+  margin-top: 2px;
+}
+
+.pattern-details strong {
+  display: block;
+  color: #e65100;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.pattern-description {
+  color: #bf360c;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Dropdown Footer */
+.dropdown-footer {
+  padding: 12px 20px;
+  background: #fafafa;
+  border-top: 1px solid #e0e0e0;
+}
+
+.footer-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.note-icon {
+  color: #f57c00;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  .list-header,
+  .half-day-row {
+    grid-template-columns: 60px 100px 80px 80px 1fr;
+    gap: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+  }
+
+  .dropdown-header {
+    padding: 12px 16px;
+  }
+
+  .summary-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .business-rules,
+  .pattern-analysis,
+  .dropdown-footer {
+    padding: 12px 16px;
+  }
+
+  .day-number {
+    font-size: 14px;
+  }
+
+  .rule-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 480px) {
+  .list-header,
+  .half-day-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    text-align: center;
+  }
+
+  .col-day {
+    flex-direction: row;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .trigger-content {
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+  }
+
+  .summary-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Scrollbar Styling for Webkit Browsers */
+.half-days-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.half-days-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.half-days-list::-webkit-scrollbar-thumb {
+  background: #f57c00;
+  border-radius: 3px;
+}
+
+.half-days-list::-webkit-scrollbar-thumb:hover {
+  background: #e65100;
+}

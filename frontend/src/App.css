@@ -1,4 +1,43 @@
-/* {{ ReplaceMe: Global Styles }} */
+/* Monochrome Blueprint Design System */
+:root {
+  /* Monochrome Color Palette */
+  --color-black: #000000;
+  --color-white: #ffffff;
+  --color-gray-100: #f5f5f5;
+  --color-gray-200: #e5e5e5;
+  --color-gray-300: #d4d4d4;
+  --color-gray-400: #a3a3a3;
+  --color-gray-500: #737373;
+  --color-gray-600: #525252;
+  --color-gray-700: #404040;
+  --color-gray-800: #262626;
+  --color-gray-900: #171717;
+  
+  /* Typography */
+  --font-mono: 'Inter', 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  --font-sans: 'Inter', 'Helvetica Neue', -apple-system, BlinkMacSystemFont, sans-serif;
+  
+  /* Spacing Grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-32: 128px;
+  
+  /* Shadows */
+  --shadow-blueprint: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-wireframe: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-precise: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -6,12 +45,14 @@
 }
 
 body {
-  font-family: 'Inter', 'Helvetica Neue', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-sans);
+  font-weight: 400;
   line-height: 1.6;
-  color: #000;
-  background: #fff;
+  color: var(--color-black);
+  background: var(--color-white);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
 }
 
 .app {
@@ -19,33 +60,53 @@ body {
   width: 100%;
   margin: 0;
   padding: 0;
+  background: var(--color-white);
 }
 
 .container {
   width: 100%;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--space-6);
+  max-width: 1440px;
 }
 
 .container-constrained {
-  max-width: 1400px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--space-6);
 }
 
 /* {{ ReplaceMe: Hero Section Styles }} */
 .hero-section {
-  padding: 120px 0 100px;
-  background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
-  border-bottom: 1px solid #e5e5e5;
+  padding: var(--space-32) 0 var(--space-24);
+  background: var(--color-white);
+  border-bottom: 1px solid var(--color-gray-200);
+  position: relative;
+}
+
+.hero-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    linear-gradient(var(--color-gray-100) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-gray-100) 1px, transparent 1px);
+  background-size: var(--space-6) var(--space-6);
+  opacity: 0.5;
+  z-index: 0;
 }
 
 .hero-content {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 80px;
+  gap: var(--space-20);
   align-items: center;
-  min-height: 500px;
+  min-height: 600px;
+  position: relative;
+  z-index: 1;
 }
 
 .hero-text {
@@ -56,28 +117,32 @@ body {
   font-size: 4rem;
   font-weight: 700;
   line-height: 1.1;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
+  color: var(--color-black);
   letter-spacing: -0.02em;
+  text-rendering: optimizeLegibility;
 }
 
 .hero-headline .highlight {
-  background: linear-gradient(90deg, #000 0%, #666 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--color-black);
+  background: none;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
+  background-clip: unset;
 }
 
 .hero-subhead {
   font-size: 1.25rem;
-  color: #666;
-  margin-bottom: 40px;
+  color: var(--color-gray-600);
+  margin-bottom: var(--space-10);
   line-height: 1.6;
   max-width: 500px;
+  font-weight: 400;
 }
 
 .hero-buttons {
   display: flex;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 
@@ -85,52 +150,67 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  position: relative;
 }
 
-/* {{ ReplaceMe: Button Styles }} */
+/* Blueprint Button System */
 .btn-primary, .btn-secondary, .btn-back {
-  padding: 16px 32px;
+  padding: var(--space-4) var(--space-8);
   font-size: 1rem;
-  font-weight: 600;
-  border: 2px solid #000;
+  font-weight: 500;
+  border: 1px solid var(--color-black);
   border-radius: 0;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   text-decoration: none;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   min-width: 180px;
-  font-family: inherit;
+  font-family: var(--font-sans);
+  letter-spacing: 0.01em;
+  position: relative;
+  box-shadow: var(--shadow-precise);
 }
 
 .btn-primary {
-  background: #000;
-  color: #fff;
+  background: var(--color-black);
+  color: var(--color-white);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #fff;
-  color: #000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: var(--color-white);
+  color: var(--color-black);
+  box-shadow: var(--shadow-blueprint);
+  transform: translateY(-1px);
 }
 
 .btn-secondary {
-  background: #fff;
-  color: #000;
+  background: var(--color-white);
+  color: var(--color-black);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: #000;
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: var(--color-black);
+  color: var(--color-white);
+  box-shadow: var(--shadow-blueprint);
+  transform: translateY(-1px);
 }
 
 .btn-back {
-  background: #fff;
-  color: #000;
+  background: var(--color-white);
+  color: var(--color-black);
   min-width: auto;
-  padding: 12px 24px;
-  margin-bottom: 24px;
+  padding: var(--space-3) var(--space-6);
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--color-gray-300);
+}
+
+.btn-back:hover:not(:disabled) {
+  border-color: var(--color-black);
+  box-shadow: var(--shadow-wireframe);
+  transform: translateY(-1px);
 }
 
 .btn-primary:disabled, .btn-secondary:disabled {

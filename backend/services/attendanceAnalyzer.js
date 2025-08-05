@@ -639,7 +639,11 @@ class AttendanceAnalyzerService {
       averageLateMinutesPerDay: 0,
       employeesWithLateArrivals: 0,
       mostLateEmployee: null,
-      commonLatePatterns: {}
+      commonLatePatterns: {},
+      totalAbsentDays: 0,
+      employeesWithAbsences: 0,
+      mostAbsentEmployee: null,
+      commonAbsencePatterns: {}
     };
     
     let totalLateInstances = 0;
@@ -666,6 +670,27 @@ class AttendanceAnalyzerService {
         empIssue.lateArrivalDetails.lateDays.forEach(lateDay => {
           const pattern = `Day${lateDay.day}`;
           stats.commonLatePatterns[pattern] = (stats.commonLatePatterns[pattern] || 0) + 1;
+        });
+      }
+      
+      // Track absence statistics
+      if (empIssue.absentDetails && empIssue.absentDetails.totalAbsentDays > 0) {
+        stats.employeesWithAbsences++;
+        stats.totalAbsentDays += empIssue.absentDetails.totalAbsentDays;
+        
+        if (empIssue.absentDetails.totalAbsentDays > (stats.mostAbsentEmployee?.absentDays || 0)) {
+          stats.mostAbsentEmployee = {
+            name: empIssue.employee.name,
+            id: empIssue.employee.id,
+            absentDays: empIssue.absentDetails.totalAbsentDays,
+            pattern: empIssue.absentDetails.absentPattern
+          };
+        }
+        
+        // Track absence patterns by day of week
+        empIssue.absentDetails.absentDays.forEach(absentDay => {
+          const pattern = `Day${absentDay.day}`;
+          stats.commonAbsencePatterns[pattern] = (stats.commonAbsencePatterns[pattern] || 0) + 1;
         });
       }
     });
@@ -1082,6 +1107,7 @@ class AttendanceAnalyzerService {
         summary: employeeIssues.summary,
         dailyBreakdown: employeeIssues.dailyBreakdown,
         lateArrivalDetails: employeeIssues.lateArrivalDetails,
+        absentDetails: employeeIssues.absentDetails,
         attendancePattern: employeeIssues.attendancePattern,
         weekdayAnalysis: employeeIssues.weekdayAnalysis
       });
@@ -1090,6 +1116,312 @@ class AttendanceAnalyzerService {
     const employeesWithIssues = issues.filter(emp => emp.issues.length > 0).length;
     console.log(`✅ Weekday analysis complete. ${employeesWithIssues}/${employees.length} employees have issues (weekdays only).`);
     return issues;
+  }
+
+  /**
+   * NEW: Analyze attendance using duration-based logic with Regular/Unusual timing rules
+   * @param {Array} employees - Array of employee data
+   * @returns {Array} Array of employees with detailed duration-based analysis
+   */
+  static analyzeAttendanceDurationBased(employees) {
+    console.log('🔍 Analyzing attendance with NEW duration-based logic (Regular vs Unusual timing)...');
+    const { UTILS } = require('../utils/constants');
+    const issues = [];
+    
+    employees.forEach(employee => {
+      const employeeIssues = this._analyzeEmployeeDurationBased(employee, UTILS);
+      
+      // Include all employees in results for comprehensive reporting
+      issues.push({
+        employee: {
+          id: employee.id,
+          name: employee.name,
+          department: employee.department
+        },
+        issues: employeeIssues.issues,
+        summary: employeeIssues.summary,
+        dailyBreakdown: employeeIssues.dailyBreakdown,
+        durationAnalysis: employeeIssues.durationAnalysis,
+        timingPatterns: employeeIssues.timingPatterns,
+        attendancePattern: employeeIssues.attendancePattern
+      });
+    });
+    
+    const employeesWithIssues = issues.filter(emp => emp.issues.length > 0).length;
+    console.log(`✅ Duration-based analysis complete. ${employeesWithIssues}/${employees.length} employees have issues.`);
+    return issues;
+  }
+
+  /**
+   * NEW: Analyze individual employee with duration-based logic
+   * @private
+   */
+  static _analyzeEmployeeDurationBased(employee, UTILS) {
+    const issues = [];
+    const dailyBreakdown = [];
+    
+    const durationAnalysis = {
+      totalWorkDays: 0,
+      fullDays: 0,
+      halfDays: 0,
+      absentDays: 0,
+      regularTimingDays: 0,
+      unusualTimingDays: 0,
+      averageWorkDuration: 0,
+      totalWorkDuration: 0,
+      halfDayDetails: []
+    };
+    
+    const timingPatterns = {
+      regularTimingPattern: 'Unknown',
+      unusualTimingPattern: 'Unknown',
+      preferredArrivalTime: null,
+      consistencyScore: 0
+    };
+    
+    let workingDays = 0;
+    let weekendDays = 0;
+    
+    console.log(`   👤 DURATION-BASED ANALYSIS: ${employee.name} (${employee.id})`);
+    
+    if (employee.dailyData && employee.dailyData.length > 0) {
+      employee.dailyData.forEach(day => {
+        const dayIssues = [];
+        
+        // Handle weekends: exclude from analysis
+        if (day.isWeekend || day.status === 'WO' || day.dayAbbr === 'St' || day.dayAbbr === 'S') {
+          weekendDays++;
+          console.log(`      📅 Day ${day.day} (${day.dayAbbr}): Weekend → Excluded`);
+          
+          dailyBreakdown.push({
+            day: day.day,
+            dayType: day.dayType || day.dayAbbr,
+            status: 'WO',
+            timingCategory: null,
+            workDuration: 0,
+            dayType: 'Weekend',
+            issues: [],
+            note: 'Weekend - excluded from analysis'
+          });
+          return;
+        }
+        
+        // Handle holidays
+        if (day.status === 'H') {
+          console.log(`      📅 Day ${day.day} (${day.dayAbbr}): Holiday → Excluded`);
+          dailyBreakdown.push({
+            day: day.day,
+            dayType: day.dayType || day.dayAbbr,
+            status: 'H',
+            timingCategory: null,
+            workDuration: 0,
+            dayType: 'Holiday',
+            issues: [],
+            note: 'Holiday - excluded from analysis'
+          });
+          return;
+        }
+        
+        // Process workdays with NEW duration-based logic
+        workingDays++;
+        durationAnalysis.totalWorkDays++;
+        
+        // Collect punch times
+        const dayPunchTimes = [day.inTime1, day.outTime1, day.inTime2, day.outTime2]
+          .filter(time => time && time.trim() !== '')
+          .map(time => time.trim());
+        
+        // Parse and validate punch times
+        const validPunchTimes = [];
+        dayPunchTimes.forEach(timeStr => {
+          const parsedTimes = UTILS.parseAllTimesFromCell(timeStr);
+          validPunchTimes.push(...parsedTimes);
+        });
+        
+        const uniquePunchTimes = [...new Set(validPunchTimes)]
+          .filter(time => UTILS.isValidTimeFormat(time))
+          .sort();
+        
+        // Use NEW duration-based attendance calculation
+        const attendanceResult = UTILS.calculatePunchBasedStatus(uniquePunchTimes, false);
+        
+        console.log(`      📅 Day ${day.day} (${day.dayAbbr}): ${attendanceResult.status}`);
+        
+        if (attendanceResult.isPresent) {
+          const { timingCategory, workDuration, requiredHours, isFullDay, dayType } = attendanceResult;
+          
+          console.log(`         ⏰ ${timingCategory} timing: ${workDuration.toFixed(2)}h (required: ${requiredHours}h) → ${dayType}`);
+          
+          // Track timing patterns
+          if (timingCategory === 'REGULAR') {
+            durationAnalysis.regularTimingDays++;
+          } else {
+            durationAnalysis.unusualTimingDays++;
+          }
+          
+          // Track work duration
+          durationAnalysis.totalWorkDuration += workDuration;
+          
+          if (isFullDay) {
+            durationAnalysis.fullDays++;
+          } else {
+            durationAnalysis.halfDays++;
+            durationAnalysis.halfDayDetails.push({
+              day: day.day,
+              dayType: day.dayType || day.dayAbbr,
+              timingCategory: timingCategory,
+              workDuration: workDuration,
+              requiredHours: requiredHours,
+              shortfall: requiredHours - workDuration,
+              firstPunch: attendanceResult.firstPunch,
+              lastPunch: attendanceResult.lastPunch
+            });
+            
+            // Add half-day issue
+            dayIssues.push({
+              type: 'HALF_DAY',
+              message: `Half Day - ${timingCategory} timing: worked ${workDuration.toFixed(2)}h, required ${requiredHours}h`,
+              severity: SEVERITY_LEVELS.MEDIUM
+            });
+          }
+          
+          // Check for late arrival (optional - could be removed since duration is main focus)
+          if (UTILS.isTimeAfter(attendanceResult.firstPunch, '10:01')) {
+            const lateMinutes = UTILS.calculateLateMinutesPunchBased(attendanceResult.firstPunch, '10:01');
+            dayIssues.push({
+              type: ISSUE_TYPES.LATE_ARRIVAL,
+              message: `Late arrival at ${attendanceResult.firstPunch} (${lateMinutes} min late)`,
+              severity: lateMinutes > 30 ? SEVERITY_LEVELS.HIGH : SEVERITY_LEVELS.MEDIUM
+            });
+          }
+          
+          dailyBreakdown.push({
+            day: day.day,
+            dayType: day.dayType || day.dayAbbr,
+            status: attendanceResult.status,
+            timingCategory: timingCategory,
+            workDuration: workDuration,
+            requiredHours: requiredHours,
+            dayType: dayType,
+            firstPunch: attendanceResult.firstPunch,
+            lastPunch: attendanceResult.lastPunch,
+            totalPunches: attendanceResult.totalPunches,
+            issues: dayIssues,
+            note: attendanceResult.note
+          });
+          
+        } else {
+          // Absent day
+          durationAnalysis.absentDays++;
+          
+          dayIssues.push({
+            type: ISSUE_TYPES.ABSENT,
+            message: attendanceResult.note,
+            severity: SEVERITY_LEVELS.HIGH
+          });
+          
+          dailyBreakdown.push({
+            day: day.day,
+            dayType: day.dayType || day.dayAbbr,
+            status: attendanceResult.status,
+            timingCategory: null,
+            workDuration: 0,
+            dayType: 'Absent',
+            issues: dayIssues,
+            note: attendanceResult.note
+          });
+          
+          console.log(`         ❌ ${attendanceResult.note}`);
+        }
+        
+        // Add day issues to main issues list
+        issues.push(...dayIssues);
+      });
+    }
+    
+    // Calculate average work duration
+    if (durationAnalysis.fullDays + durationAnalysis.halfDays > 0) {
+      durationAnalysis.averageWorkDuration = 
+        durationAnalysis.totalWorkDuration / (durationAnalysis.fullDays + durationAnalysis.halfDays);
+    }
+    
+    // Determine timing patterns
+    if (durationAnalysis.regularTimingDays > durationAnalysis.unusualTimingDays) {
+      timingPatterns.regularTimingPattern = 'Preferred';
+      timingPatterns.unusualTimingPattern = 'Occasional';
+    } else if (durationAnalysis.unusualTimingDays > durationAnalysis.regularTimingDays) {
+      timingPatterns.regularTimingPattern = 'Occasional';
+      timingPatterns.unusualTimingPattern = 'Preferred';
+    } else {
+      timingPatterns.regularTimingPattern = 'Mixed';
+      timingPatterns.unusualTimingPattern = 'Mixed';
+    }
+    
+    // Calculate consistency score
+    const presentDays = durationAnalysis.fullDays + durationAnalysis.halfDays;
+    if (presentDays > 0) {
+      const fullDayRate = durationAnalysis.fullDays / presentDays;
+      timingPatterns.consistencyScore = Math.round(fullDayRate * 100);
+    }
+    
+    const summary = {
+      workingDays: workingDays,
+      presentDays: presentDays,
+      absentDays: durationAnalysis.absentDays,
+      fullDays: durationAnalysis.fullDays,
+      halfDays: durationAnalysis.halfDays,
+      weekendDays: weekendDays,
+      attendanceRate: workingDays > 0 ? Math.round((presentDays / workingDays) * 100) : 0,
+      fullDayRate: presentDays > 0 ? Math.round((durationAnalysis.fullDays / presentDays) * 100) : 0,
+      averageWorkHours: durationAnalysis.averageWorkDuration
+    };
+    
+    const attendancePattern = {
+      timingPreference: durationAnalysis.regularTimingDays > durationAnalysis.unusualTimingDays ? 'Regular' : 'Unusual',
+      workDurationConsistency: timingPatterns.consistencyScore >= 80 ? 'High' : 
+                              timingPatterns.consistencyScore >= 60 ? 'Medium' : 'Low'
+    };
+    
+    console.log(`      📊 ${employee.name}: ${durationAnalysis.fullDays}F/${durationAnalysis.halfDays}H/${durationAnalysis.absentDays}A (${workingDays} days)`);
+    console.log(`         Average: ${durationAnalysis.averageWorkDuration.toFixed(2)}h/day, Consistency: ${timingPatterns.consistencyScore}%`);
+    
+    return {
+      issues,
+      summary,
+      dailyBreakdown,
+      durationAnalysis,
+      timingPatterns,
+      attendancePattern
+    };
+  }
+
+  /**
+   * Calculate work duration in minutes between two times
+   * @private
+   */
+  static _calculateWorkMinutes(startTime, endTime) {
+    if (!startTime || !endTime) return 0;
+    
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    
+    const startMinutes = sh * 60 + sm;
+    const endMinutes = eh * 60 + em;
+    
+    // Handle case where end time is next day (unlikely but possible)
+    if (endMinutes < startMinutes) {
+      return (24 * 60) + endMinutes - startMinutes;
+    }
+    
+    return endMinutes - startMinutes;
+  }
+
+  /**
+   * Calculate work duration in minutes (alias for compatibility)
+   * @private
+   */
+  static _calculateWorkDuration(startTime, endTime) {
+    return this._calculateWorkMinutes(startTime, endTime);
   }
 
   /**
@@ -1105,6 +1437,25 @@ class AttendanceAnalyzerService {
       lateDays: [],
       pattern: 'Occasional',
       averageLateMinutes: 0
+    };
+    
+    const absentDetails = {
+      totalAbsentDays: 0,
+      absentDays: [],
+      absentPattern: 'Occasional',
+      consecutiveAbsences: 0
+    };
+    
+    const halfDayDetails = {
+      totalHalfDays: 0,
+      halfDays: [],
+      halfDayPattern: 'Occasional',
+      averageWorkHours: 0,
+      totalWorkMinutes: 0,
+      reasons: {
+        shortDuration: 0,
+        earlyArrivalShortWork: 0
+      }
     };
     
     let punctualDays = 0;
@@ -1161,6 +1512,39 @@ class AttendanceAnalyzerService {
         workingDays++;
         console.log(`      📅 Day ${day.day} (${day.dayAbbr}): Weekday → Processing with punch-based logic`);
         
+        // Check for explicit absence status first
+        if (day.status === 'A') {
+          absentDays++;
+          absentDetails.totalAbsentDays++;
+          absentDetails.absentDays.push({
+            day: day.day,
+            dayType: day.dayType || day.dayAbbr,
+            reason: 'Marked as absent (A)'
+          });
+          
+          dayIssues.push({
+            type: ISSUE_TYPES.ABSENT,
+            message: `Employee was absent - marked as 'A'`,
+            severity: SEVERITY_LEVELS.HIGH
+          });
+          console.log(`         ❌ Absent (status: A)`);
+          
+          // Add to daily breakdown and continue to next day
+          issues.push(...dayIssues);
+          dailyBreakdown.push({
+            day: day.day,
+            dayType: day.dayType || day.dayAbbr,
+            dayAbbr: day.dayAbbr,
+            status: day.status,
+            issues: dayIssues,
+            isLate: false,
+            lateMinutes: 0,
+            punchTimes: [],
+            note: 'Weekday - marked as absent'
+          });
+          return; // Skip punch analysis for explicit absences
+        }
+        
         // Collect all punch times for this day
         const dayPunchTimes = [day.inTime1, day.outTime1, day.inTime2, day.outTime2]
           .filter(time => time && time.trim() !== '')
@@ -1172,6 +1556,15 @@ class AttendanceAnalyzerService {
         if (dayPunchTimes.length === 0) {
           // NO PUNCH TIMES = ABSENT
           absentDays++;
+          
+          // Track absent day details
+          absentDetails.totalAbsentDays++;
+          absentDetails.absentDays.push({
+            day: day.day,
+            dayType: day.dayType || day.dayAbbr,
+            reason: 'No punch times recorded'
+          });
+          
           dayIssues.push({
             type: ISSUE_TYPES.ABSENT,
             message: `Employee was absent - no punch times recorded`,
@@ -1241,6 +1634,60 @@ class AttendanceAnalyzerService {
             } else {
               console.log(`         ✅ Full day (stayed until ${lastPunch})`);
             }
+            
+            // NEW: Calculate work hours and check for half day
+            const workMinutes = this._calculateWorkMinutes(firstPunch, lastPunch);
+            halfDayDetails.totalWorkMinutes += workMinutes;
+            
+            // Determine required hours based on arrival time
+            let requiredMinutes;
+            let isUnusualTiming = false;
+            
+            // Check if arrival is before 9:30 AM or after 10:01 AM
+            if (UTILS.isTimeBefore(firstPunch, '09:30') || UTILS.isTimeAfter(firstPunch, '10:01')) {
+              requiredMinutes = 9 * 60; // 9 hours for unusual timing
+              isUnusualTiming = true;
+              console.log(`         🕘 Unusual timing arrival (${firstPunch}) - requires 9 hours`);
+            } else {
+              requiredMinutes = 4.5 * 60; // 4.5 hours for regular timing
+              console.log(`         ⏰ Regular timing arrival (${firstPunch}) - requires 4.5 hours`);
+            }
+            
+            // Check if it's a half day
+            if (workMinutes < requiredMinutes) {
+              halfDayDetails.totalHalfDays++;
+              
+              let reason;
+              if (isUnusualTiming) {
+                reason = `Unusual timing arrival - worked ${Math.round(workMinutes/60*10)/10}h, required 9h`;
+              } else {
+                reason = `Insufficient hours - worked ${Math.round(workMinutes/60*10)/10}h, required 4.5h`;
+              }
+              
+              halfDayDetails.halfDays.push({
+                day: day.day,
+                dayType: day.dayType || day.dayAbbr,
+                arrivalTime: firstPunch,
+                departureTime: lastPunch,
+                workMinutes: workMinutes,
+                requiredMinutes: requiredMinutes,
+                reason: reason,
+                isUnusualTiming: isUnusualTiming
+              });
+              
+              dayIssues.push({
+                type: 'HALF_DAY',
+                message: `Half day - ${reason}`,
+                severity: SEVERITY_LEVELS.MEDIUM
+              });
+              
+              console.log(`         🕐 Half day detected: ${reason}`);
+            } else {
+              console.log(`         ✅ Full day: worked ${Math.round(workMinutes/60*10)/10}h`);
+            }
+            
+            // Duration-based logic is already handled above by UTILS.calculatePunchBasedStatus()
+            // No additional half-day calculation needed here
           } else {
             // Has punch data but no valid times
             dayIssues.push({
@@ -1282,6 +1729,46 @@ class AttendanceAnalyzerService {
       }
     }
     
+    // Calculate absence patterns
+    if (absentDetails.totalAbsentDays > 0) {
+      if (absentDetails.totalAbsentDays >= workingDays * 0.4) {
+        absentDetails.absentPattern = 'Chronic';
+      } else if (absentDetails.totalAbsentDays >= workingDays * 0.2) {
+        absentDetails.absentPattern = 'Frequent';
+      } else {
+        absentDetails.absentPattern = 'Occasional';
+      }
+      
+      // Calculate consecutive absences
+      let maxConsecutive = 0;
+      let currentConsecutive = 0;
+      
+      for (let i = 0; i < absentDetails.absentDays.length; i++) {
+        if (i > 0 && absentDetails.absentDays[i].day === absentDetails.absentDays[i-1].day + 1) {
+          currentConsecutive++;
+        } else {
+          currentConsecutive = 1;
+        }
+        maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+      }
+      
+      absentDetails.consecutiveAbsences = maxConsecutive;
+    }
+    
+    // Calculate half-day patterns
+    if (halfDayDetails.totalHalfDays > 0) {
+      const totalWorkHours = halfDayDetails.halfDays.reduce((sum, hd) => sum + hd.workHours, 0);
+      halfDayDetails.averageWorkHours = Math.round((totalWorkHours / halfDayDetails.totalHalfDays) * 100) / 100;
+      
+      if (halfDayDetails.totalHalfDays >= workingDays * 0.3) {
+        halfDayDetails.halfDayPattern = 'Frequent';
+      } else if (halfDayDetails.totalHalfDays >= workingDays * 0.15) {
+        halfDayDetails.halfDayPattern = 'Occasional';
+      } else {
+        halfDayDetails.halfDayPattern = 'Rare';
+      }
+    }
+    
     const summary = {
       workingDays: workingDays, // Only weekdays
       presentDays: presentDays,
@@ -1312,6 +1799,8 @@ class AttendanceAnalyzerService {
       summary,
       dailyBreakdown,
       lateArrivalDetails,
+      absentDetails,
+      halfDayDetails,
       attendancePattern,
       weekdayAnalysis
     };
@@ -1399,6 +1888,57 @@ class AttendanceAnalyzerService {
         punctualityRate: Math.round(punctualityRate * 100)
       }
     };
+  }
+
+  /**
+   * Generate comprehensive absence summary for detailed analysis
+   * @param {Array} issues - Array of employee issues
+   * @returns {Object} Absence summary object
+   */
+  static generateAbsenceSummary(issues) {
+    const absenceSummary = {
+      totalEmployeesWithAbsences: 0,
+      totalAbsentDays: 0,
+      averageAbsentDaysPerEmployee: 0,
+      topAbsentEmployees: [],
+      absencePatternDistribution: {}
+    };
+
+    const employeesWithAbsences = [];
+
+    issues.forEach(empIssue => {
+      if (empIssue.absentDetails && empIssue.absentDetails.totalAbsentDays > 0) {
+        absenceSummary.totalEmployeesWithAbsences++;
+        absenceSummary.totalAbsentDays += empIssue.absentDetails.totalAbsentDays;
+
+        employeesWithAbsences.push({
+          name: empIssue.employee.name,
+          id: empIssue.employee.id,
+          absentDays: empIssue.absentDetails.totalAbsentDays,
+          absenceRate: Math.round((empIssue.absentDetails.totalAbsentDays / 22) * 100), // Assuming 22 working days
+          pattern: empIssue.absentDetails.absentPattern,
+          absentDetails: empIssue.absentDetails
+        });
+
+        // Track pattern distribution
+        const pattern = empIssue.absentDetails.absentPattern;
+        absenceSummary.absencePatternDistribution[pattern] = 
+          (absenceSummary.absencePatternDistribution[pattern] || 0) + 1;
+      }
+    });
+
+    // Calculate average
+    if (absenceSummary.totalEmployeesWithAbsences > 0) {
+      absenceSummary.averageAbsentDaysPerEmployee = 
+        Math.round(absenceSummary.totalAbsentDays / absenceSummary.totalEmployeesWithAbsences);
+    }
+
+    // Sort employees by absent days and get top 10
+    absenceSummary.topAbsentEmployees = employeesWithAbsences
+      .sort((a, b) => b.absentDays - a.absentDays)
+      .slice(0, 10);
+
+    return absenceSummary;
   }
 
   static _hasValidPunchOut(day) {

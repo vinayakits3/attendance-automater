@@ -51,6 +51,7 @@ class FixedFileController {
           summary: summary,
           detailedAnalysis: {
             lateArrivalSummary: FixedFileController._generateLateArrivalSummary(issues),
+            absenceSummary: AttendanceAnalyzerService.generateAbsenceSummary(issues),
             dailyAttendanceBreakdown: FixedFileController._generateDailyBreakdown(issues),
             attendancePatterns: FixedFileController._generateAttendancePatterns(issues),
             weekendAnalysis: FixedFileController._generateWeekendAnalysis(employees)

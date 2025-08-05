@@ -97,6 +97,7 @@ class UploadController {
           summary: summary,
           detailedAnalysis: {
             lateArrivalSummary: UploadController._generateLateArrivalSummary(issues),
+            absenceSummary: AttendanceAnalyzerService.generateAbsenceSummary(issues),
             dailyAttendanceBreakdown: UploadController._generateDailyBreakdown(issues),
             attendancePatterns: UploadController._generateAttendancePatterns(issues),
             weekendAnalysis: UploadController._generateWeekendAnalysis(employees),
