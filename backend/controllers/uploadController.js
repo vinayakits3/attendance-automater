@@ -7,6 +7,10 @@ class UploadController {
   /**
    * Upload and process Excel file with enhanced format support
    */
+  /**
+   * Upload and process Excel file - INN DEPARTMENT ONLY
+   * MODIFIED: Ensures any uploaded Excel file only processes INN department employees
+   */
   static async uploadFile(req, res) {
     try {
       if (!req.file) {
@@ -16,49 +20,68 @@ class UploadController {
         });
       }
       
-      console.log(`Processing uploaded file: ${req.file.filename}`);
+      console.log(`🔍 Processing uploaded file: ${req.file.filename} - FILTERING FOR INN DEPARTMENT ONLY`);
       
       // Store filename for month/year detection
       const workbook = XLSX.readFile(req.file.path);
       workbook.filename = req.file.originalname;
       
-      // Try different parsing methods based on file structure
+      // IMPORTANT: Always filter for INN department only, regardless of format
       let employees, issues;
       let formatDetected = 'Unknown';
       
-      // Method 1: Check if it's a Four Punch format
-      const isFourPunchFormat = ExcelParserService.isFourPunchFormat(workbook);
+      console.log('🎯 FILTERING FOR INN DEPARTMENT ONLY - All other departments will be ignored');
       
-      if (isFourPunchFormat) {
-        console.log('Detected Four Punch format');
-        formatDetected = 'Four Punch';
-        employees = ExcelParserService.parseFourPunchData(workbook);
-      } else {
-        // Method 2: Try Fixed Format (InTime1, OutTime1, InTime2 format)
-        console.log('Trying Fixed Format parsing...');
+      // Method 1: Try INN-specific parsing first (Fixed Format)
+      try {
+        console.log('Attempting INN-specific Fixed Format parsing...');
+        employees = ExcelParserService.parseFixedFormatFile(workbook);
+        if (employees && employees.length > 0) {
+          formatDetected = 'Fixed Format (INN Department Only)';
+          console.log('✅ Successfully parsed as Fixed Format - INN Department Only');
+        } else {
+          throw new Error('No INN department employees found in Fixed Format parsing');
+        }
+      } catch (fixedFormatError) {
+        console.log('Fixed format parsing failed, trying INN-filtered Four Punch parsing...');
+        
+        // Method 2: Try INN-filtered Four Punch format
         try {
-          employees = ExcelParserService.parseFixedFormatFile(workbook);
-          formatDetected = 'Fixed Format (InTime1/OutTime1/InTime2)';
-          console.log('Successfully parsed as Fixed Format');
-        } catch (fixedFormatError) {
-          console.log('Fixed format parsing failed, trying flexible parsing...');
-          // Method 3: Fall back to flexible parsing
-          employees = ExcelParserService.parseFourPunchData(workbook);
-          formatDetected = 'Flexible/Generic';
+          employees = ExcelParserService.parseINNDepartmentData(workbook);
+          if (employees && employees.length > 0) {
+            formatDetected = 'Four Punch Format (INN Department Only)';
+            console.log('✅ Successfully parsed as Four Punch - INN Department Only');
+          } else {
+            throw new Error('No INN department employees found in Four Punch parsing');
+          }
+        } catch (innFourPunchError) {
+          console.log('INN Four Punch parsing failed, trying comprehensive INN-only parsing...');
+          
+          // Method 3: Use comprehensive INN-only parsing method
+          employees = ExcelParserService.parseFourPunchDataINNOnly(workbook);
+          formatDetected = 'Comprehensive INN-Only Parsing';
         }
       }
       
       if (!employees || employees.length === 0) {
-        throw new Error('No employee data found in the uploaded file. Please check the file format.');
+        throw new Error('No INN department employees found in the uploaded file. Please ensure the file contains INN department data.');
       }
       
-      // Analyze attendance issues with weekend detection
-      issues = AttendanceAnalyzerService.analyzeAttendanceWithWeekends 
-        ? AttendanceAnalyzerService.analyzeAttendanceWithWeekends(employees)
+      // Double-check: Ensure all employees are marked as INN department
+      employees = employees.map(emp => ({
+        ...emp,
+        department: 'INN' // Force INN department assignment
+      }));
+      
+      console.log(`🎯 FINAL RESULT: Processing ${employees.length} employees from INN DEPARTMENT ONLY`);
+      
+      // Analyze attendance issues - WEEKDAYS ONLY (Monday-Friday)
+      issues = AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly 
+        ? AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly(employees)
         : AttendanceAnalyzerService.analyzeAttendance(employees);
       
       // Generate comprehensive summary
-      const summary = AttendanceAnalyzerService.generateSummary(employees, issues);
+      const summary = AttendanceAnalyzerService.generateSummary(employees, issues, 'INN');
       
       // Clean up uploaded file
       fs.unlink(req.file.path, (err) => {
@@ -82,6 +105,7 @@ class UploadController {
         },
         metadata: {
           filename: req.file.originalname,
+          department: 'INN',
           format: formatDetected,
           employeeCount: employees.length,
           issueCount: issues.length,
@@ -91,10 +115,12 @@ class UploadController {
           businessRules: {
             lateThreshold: '10:01',
             earlyDepartureThreshold: '18:30',
-            weekendsAutoExcluded: true
-          }
+            weekendsAutoExcluded: true,
+            departmentFilter: 'INN ONLY'
+          },
+          processingNote: 'This upload was processed to include ONLY INN department employees. All other departments were filtered out.'
         },
-        message: `Successfully processed ${employees.length} employees with ${formatDetected} format`
+        message: `Successfully processed ${employees.length} employees from INN DEPARTMENT ONLY with ${formatDetected} format`
       });
       
     } catch (error) {
@@ -109,7 +135,8 @@ class UploadController {
       
       res.status(500).json({ 
         success: false,
-        error: 'Error processing file: ' + error.message 
+        error: 'Error processing file: ' + error.message,
+        note: 'This system only processes INN department employees. Please ensure your file contains INN department data.'
       });
     }
   }

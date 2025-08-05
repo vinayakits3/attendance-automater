@@ -156,21 +156,40 @@ class ExcelParserService {
     const employees = [];
     let currentRow = innDepartmentRow + 2; // Start 2 rows after department header
     
-    console.log(`🔍 Looking for INN employees starting from row ${currentRow + 1}...`);
+    // INN DEPARTMENT BOUNDARY - Stop at row 905 (another department starts above row 905)
+    const INN_DEPARTMENT_END_ROW = 904; // Row 905 is where another dept starts (0-indexed: 904)
     
-    // Process employee blocks until we hit another department or end of data
-    while (currentRow < worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']).e.r : 1000) {
+    console.log(`🔍 Looking for INN employees starting from row ${currentRow + 1}...`);
+    console.log(`🏢 INN Department Boundary: Processing ONLY up to row ${INN_DEPARTMENT_END_ROW + 1} (Excel row 905)`);
+    console.log(`🛑 Will STOP before row ${INN_DEPARTMENT_END_ROW + 2} to avoid other departments`);
+    
+    // Process employee blocks until we hit row 905 or end of data
+    const maxRow = Math.min(
+      INN_DEPARTMENT_END_ROW, 
+      worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']).e.r : 1000
+    );
+    
+    while (currentRow <= maxRow) {
+      // SAFETY CHECK: Ensure we don't exceed INN department boundary
+      if (currentRow > INN_DEPARTMENT_END_ROW) {
+        console.log(`🛑 STOPPED at row ${currentRow + 1}: Reached INN department boundary (row 905)`);
+        console.log(`🏢 This ensures we process ONLY INN department employees`);
+        break;
+      }
+      
       const employeeCell = worksheet[XLSX.utils.encode_cell({ r: currentRow, c: 0 })];
       
-      // Check if we've reached another department
+      // Enhanced department verification
       const deptCell = worksheet[XLSX.utils.encode_cell({ r: currentRow, c: 4 })];
       if (deptCell && deptCell.v) {
         const deptValue = deptCell.v.toString().trim().toUpperCase();
+        
+        // Double-check: If we find a non-INN department before row 905, stop immediately
         if (deptValue !== 'INN' && deptValue.length > 0 && deptValue !== innDepartmentRow.toString()) {
-          // Check if this is a different department
           if (deptValue.includes('DEPARTMENT') || 
               (deptValue.length <= 10 && deptValue !== 'INN' && !deptValue.includes(':'))) {
-            console.log(`🛑 Found different department '${deptValue}' at row ${currentRow + 1}, stopping INN parsing`);
+            console.log(`🛑 UNEXPECTED: Found different department '${deptValue}' at row ${currentRow + 1}`);
+            console.log(`🔍 This should not happen before row 905 - stopping for safety`);
             break;
           }
         }
@@ -178,19 +197,33 @@ class ExcelParserService {
       
       // Check if this is an employee row
       if (employeeCell && employeeCell.v && employeeCell.v.toString().includes('Employee:')) {
+        console.log(`   🔍 Processing employee at row ${currentRow + 1} (within INN boundary)`);
+        
         const employee = ExcelParserService._parseEmployeeBlock(worksheet, currentRow, dayHeaders, month, year, UTILS);
         if (employee) {
           // Ensure this employee belongs to INN department
           employee.department = 'INN';
+          employee.rowNumber = currentRow + 1; // Add row tracking for verification
           employees.push(employee);
-          console.log(`✅ Parsed INN employee: ${employee.name} (ID: ${employee.id})`);
+          console.log(`   ✅ Parsed INN employee: ${employee.name} (ID: ${employee.id}) at row ${currentRow + 1}`);
         }
       }
       
       currentRow += 12; // Move to next employee block (12 rows later)
+      
+      // Additional safety check before next iteration
+      if (currentRow > INN_DEPARTMENT_END_ROW) {
+        console.log(`🔄 Next employee block would be at row ${currentRow + 1}, which exceeds INN boundary`);
+        break;
+      }
     }
     
-    console.log(`📊 Total INN Department employees found: ${employees.length}`);
+    console.log(`🏢 INN DEPARTMENT PROCESSING SUMMARY:`);
+    console.log(`   📍 Started at row: ${innDepartmentRow + 3}`);
+    console.log(`   📍 Stopped before row: ${INN_DEPARTMENT_END_ROW + 2} (905)`);
+    console.log(`   👥 Total INN employees found: ${employees.length}`);
+    console.log(`   ✅ Ensured NO other departments processed`);
+    
     return employees;
   }
 
@@ -199,9 +232,16 @@ class ExcelParserService {
    * Parse day headers from row 6 to understand the column layout
    * @private
    */
+  /**
+   * Parse day headers from row 6 to understand the column layout
+   * UPDATED: Only calculate attendance for Monday-Friday based on Excel day abbreviations
+   * @private
+   */
   static _parseDayHeaders(worksheet, range, month, year) {
     const dayHeaders = {};
     const dayRowIndex = 5; // Row 6 (0-indexed = 5)
+    
+    console.log('📅 Parsing day headers from Excel row 6 for Monday-Friday only...');
     
     // Start from column C (index 2) where days begin
     for (let col = 2; col <= range.e.c; col++) {
@@ -212,32 +252,90 @@ class ExcelParserService {
         const cellValue = cell.v.toString().trim();
         
         // Parse day format like "1 T", "2 W", "5 St", "6 S"
-        const dayMatch = cellValue.match(/^(\\d+)\\s+([A-Za-z]+)$/);
+        const dayMatch = cellValue.match(/^(\d+)\s+([A-Za-z]+)$/);
         if (dayMatch) {
           const dayNumber = parseInt(dayMatch[1]);
           const dayAbbr = dayMatch[2];
           
           if (dayNumber >= 1 && dayNumber <= 31) {
-            const { UTILS } = require('../utils/constants');
-            const isWeekend = UTILS.isWeekend(dayNumber, month, year);
-            const dayName = UTILS.getDayName(dayNumber, month, year);
+            // Determine if this is a weekday or weekend based on Excel abbreviations
+            const isWeekend = ExcelParserService._isWeekendByExcelAbbr(dayAbbr);
+            const isWeekday = ExcelParserService._isWeekdayByExcelAbbr(dayAbbr);
+            const fullDayName = ExcelParserService._getFullDayName(dayAbbr);
+            
+            // Log weekend/weekday detection
+            if (isWeekend) {
+              console.log(`   📅 Day ${dayNumber} (${dayAbbr}): ${fullDayName} → WEEKEND (excluded from attendance calculation)`);
+            } else if (isWeekday) {
+              console.log(`   📅 Day ${dayNumber} (${dayAbbr}): ${fullDayName} → WEEKDAY (included in attendance calculation)`);
+            } else {
+              console.log(`   📅 Day ${dayNumber} (${dayAbbr}): Unknown day type → Treating as weekday`);
+            }
             
             dayHeaders[col] = {
               day: dayNumber,
               dayAbbr: dayAbbr,
-              dayName: dayName,
-              isWeekend: isWeekend
+              dayName: fullDayName,
+              isWeekend: isWeekend,
+              isWeekday: isWeekday,
+              includeInAttendance: isWeekday // Only include weekdays in attendance calculation
             };
           }
         }
       }
     }
     
+    const weekdays = Object.values(dayHeaders).filter(d => d.isWeekday).length;
+    const weekends = Object.values(dayHeaders).filter(d => d.isWeekend).length;
+    console.log(`📊 Day parsing summary: ${weekdays} weekdays (Mon-Fri), ${weekends} weekends (Sat-Sun)`);
+    
     return dayHeaders;
   }
 
   /**
+   * Check if day abbreviation represents a weekend (Saturday or Sunday)
+   * Based on Excel day abbreviations from row 6
+   * @private
+   */
+  static _isWeekendByExcelAbbr(dayAbbr) {
+    const weekendAbbrs = ['St', 'S']; // St = Saturday, S = Sunday
+    return weekendAbbrs.includes(dayAbbr);
+  }
+
+  /**
+   * Check if day abbreviation represents a weekday (Monday-Friday)
+   * Based on Excel day abbreviations from row 6
+   * @private
+   */
+  static _isWeekdayByExcelAbbr(dayAbbr) {
+    const weekdayAbbrs = ['M', 'T', 'W', 'Th', 'F']; // Monday to Friday
+    return weekdayAbbrs.includes(dayAbbr);
+  }
+
+  /**
+   * Get full day name from Excel abbreviation
+   * @private
+   */
+  static _getFullDayName(dayAbbr) {
+    const dayNames = {
+      'M': 'Monday',
+      'T': 'Tuesday', 
+      'W': 'Wednesday',
+      'Th': 'Thursday',
+      'F': 'Friday',
+      'St': 'Saturday',
+      'S': 'Sunday'
+    };
+    return dayNames[dayAbbr] || dayAbbr;
+  }
+
+  /**
    * Parse a complete employee block (12 rows)
+   * @private
+   */
+  /**
+   * Parse a complete employee block (12 rows)
+   * UPDATED: Only process Monday-Friday attendance based on Excel day headers
    * @private
    */
   static _parseEmployeeBlock(worksheet, startRow, dayHeaders, month, year, UTILS) {
@@ -251,11 +349,16 @@ class ExcelParserService {
       const employeeInfo = employeeInfoCell.v.toString();
       const [employeeId, employeeName] = employeeInfo.split(' : ').map(s => s.trim());
       
+      console.log(`👤 Processing employee: ${employeeName} (${employeeId}) - Monday to Friday only`);
+      
       // Parse daily data for each day column
       const dailyData = [];
+      let weekdayCount = 0;
+      let weekendCount = 0;
+      
       Object.entries(dayHeaders).forEach(([colIndex, dayInfo]) => {
         const col = parseInt(colIndex);
-        const { day, dayAbbr, dayName, isWeekend } = dayInfo;
+        const { day, dayAbbr, dayName, isWeekend, isWeekday, includeInAttendance } = dayInfo;
         
         // Get data from each row of the employee block
         const statusCell = worksheet[XLSX.utils.encode_cell({ r: startRow + 1, c: col })];
@@ -281,10 +384,29 @@ class ExcelParserService {
         const inTime2 = UTILS.parseMultipleTimes(inTime2Raw, 'in');
         const outTime2 = UTILS.parseMultipleTimes(outTime2Raw, 'out');
         
-        // Calculate status based on backend business logic (ignore Excel status)
-        let status = ExcelParserService._calculateAttendanceStatus(
-          inTime1, outTime1, inTime2, outTime2, isWeekend, day, dayName, UTILS
-        );
+        // Calculate status based on weekday/weekend logic
+        let status;
+        
+        if (isWeekend) {
+          // Weekend days: Always WO (Weekend Off) - not included in attendance calculation
+          status = 'WO';
+          weekendCount++;
+          console.log(`   📅 Day ${day} (${dayAbbr} - ${dayName}): Weekend → WO (excluded from attendance)`);
+        } else if (isWeekday) {
+          // Weekday: Calculate attendance status based on business logic
+          status = ExcelParserService._calculateAttendanceStatus(
+            inTime1, outTime1, inTime2, outTime2, false, day, dayName, UTILS
+          );
+          weekdayCount++;
+          console.log(`   📅 Day ${day} (${dayAbbr} - ${dayName}): Weekday → ${status} (included in attendance)`);
+        } else {
+          // Unknown day type: treat as weekday for backward compatibility
+          status = ExcelParserService._calculateAttendanceStatus(
+            inTime1, outTime1, inTime2, outTime2, false, day, dayName, UTILS
+          );
+          weekdayCount++;
+          console.log(`   📅 Day ${day} (${dayAbbr} - ${dayName}): Unknown → ${status} (treated as weekday)`);
+        }
         
         const dayRecord = {
           day: day,
@@ -300,25 +422,33 @@ class ExcelParserService {
           earlyBy: earlyByCell ? earlyByCell.v?.toString().trim() || null : null,
           overtime: otCell ? otCell.v?.toString().trim() || null : null,
           shift: shiftCell ? shiftCell.v?.toString().trim() || '' : '',
-          isWeekend: isWeekend
+          isWeekend: isWeekend,
+          isWeekday: isWeekday,
+          includeInAttendance: includeInAttendance // Only weekdays are included
         };
         
         dailyData.push(dayRecord);
       });
       
-      // Calculate summary
+      // Calculate summary based on WEEKDAYS ONLY (Monday-Friday)
       const summary = ExcelParserService._calculateSummaryFromDailyData(dailyData);
+      
+      console.log(`   📊 ${employeeName}: ${weekdayCount} weekdays processed, ${weekendCount} weekends excluded`);
+      console.log(`   📊 Summary: ${summary.present}P/${summary.absent}A (${summary.workingDays} working days)`);
       
       const employee = {
         id: employeeId || `EMP${startRow}`,
         name: employeeName || employeeId || `Employee ${startRow}`,
-        department: 'General',
+        department: 'INN',
         summary: summary,
         dailyData: dailyData,
         month: month,
         year: year,
         reportFormat: 'WorkDurationReportFourPunch',
-        statusCalculation: 'Backend Logic (InTime/OutTime based)'
+        statusCalculation: 'Backend Logic (Monday-Friday Only)',
+        attendancePolicy: 'Weekdays Only (Monday-Friday)',
+        weekdaysProcessed: weekdayCount,
+        weekendsExcluded: weekendCount
       };
       
       return employee;
@@ -335,60 +465,74 @@ class ExcelParserService {
    * @private
    */
   static _calculateAttendanceStatus(inTime1, outTime1, inTime2, outTime2, isWeekend, day, dayName, UTILS) {
+    console.log(`   🔧 PUNCH-BASED LOGIC: Day ${day} (${dayName})`);
+    
     // 1. Weekend Detection - Automatic WO (Weekend Off)
     if (isWeekend) {
       console.log(`   Day ${day} (${dayName}): Weekend → WO`);
       return 'WO';
     }
     
-    // 2. Check if employee has any punch data
-    const hasPunchData = inTime1 || outTime1 || inTime2 || outTime2;
+    // 2. NEW PUNCH-BASED LOGIC FOR INN DEPARTMENT
+    // Collect all punch times from the day
+    const allPunchTimes = [inTime1, outTime1, inTime2, outTime2]
+      .filter(time => time && time.trim() !== '') // Remove empty/null times
+      .map(time => time.trim());
     
-    if (!hasPunchData) {
-      console.log(`   Day ${day} (${dayName}): No punch data → A (Absent)`);
+    console.log(`   📊 Punch times found: [${allPunchTimes.join(', ')}]`);
+    
+    // Parse and validate all punch times
+    const validPunchTimes = [];
+    allPunchTimes.forEach(timeStr => {
+      const parsedTimes = UTILS.parseAllTimesFromCell(timeStr);
+      validPunchTimes.push(...parsedTimes);
+    });
+    
+    // Remove duplicates and sort
+    const uniquePunchTimes = [...new Set(validPunchTimes)]
+      .filter(time => UTILS.isValidTimeFormat(time))
+      .sort();
+    
+    console.log(`   ✅ Valid unique punch times: [${uniquePunchTimes.join(', ')}]`);
+    
+    // 3. NEW ATTENDANCE DETERMINATION LOGIC
+    if (uniquePunchTimes.length === 0) {
+      // NO PUNCH TIMES = ABSENT
+      console.log(`   ❌ Day ${day} (${dayName}): No valid punch times → A (Absent)`);
       return 'A';
     }
     
-    // 3. Validate attendance based on your business rules
-    const hasValidPunchIn = inTime1 && UTILS.isValidPunchIn(inTime1);
+    // HAS PUNCH TIMES = PRESENT
+    const firstPunch = uniquePunchTimes[0]; // Minimum (earliest) time
+    const lastPunch = uniquePunchTimes[uniquePunchTimes.length - 1]; // Maximum (latest) time
     
-    // Check for valid punch-out (any of the out times after 18:30)
-    let hasValidPunchOut = false;
-    let finalPunchOutTime = null;
+    // Check late arrival (MIN time > 10:01)
+    const isLate = UTILS.isTimeAfter(firstPunch, ATTENDANCE_CONFIG.CHECK_IN_TIME);
     
-    if (outTime2 && UTILS.isValidPunchOut(outTime2)) {
-      hasValidPunchOut = true;
-      finalPunchOutTime = outTime2;
-    } else if (inTime2 && UTILS.isValidPunchOut(inTime2)) {
-      hasValidPunchOut = true;
-      finalPunchOutTime = inTime2;
-    } else if (outTime1 && UTILS.isValidPunchOut(outTime1)) {
-      hasValidPunchOut = true;
-      finalPunchOutTime = outTime1;
+    // Check early departure (MAX time < 18:15)  
+    const isEarlyDeparture = UTILS.isTimeBefore(lastPunch, ATTENDANCE_CONFIG.CHECK_OUT_TIME);
+    
+    let statusNote = '';
+    if (isLate) {
+      const lateMinutes = UTILS.calculateLateMinutesPunchBased(firstPunch, ATTENDANCE_CONFIG.CHECK_IN_TIME);
+      statusNote += ` (Late by ${lateMinutes} min)`;
+    }
+    if (isEarlyDeparture) {
+      statusNote += ` (Early departure)`;
     }
     
-    // 4. Apply your attendance criteria
-    if (hasValidPunchIn && hasValidPunchOut) {
-      console.log(`   Day ${day} (${dayName}): Valid In (${inTime1}) + Valid Out (${finalPunchOutTime}) → P (Present)`);
-      return 'P';
-    } else if (hasValidPunchIn && !hasValidPunchOut) {
-      // Has punch-in before 10:01 but no valid punch-out after 18:30
-      const lastPunchOut = outTime2 || inTime2 || outTime1;
-      console.log(`   Day ${day} (${dayName}): Valid In (${inTime1}) but Early Out (${lastPunchOut}) → P (Present with issues)`);
-      return 'P'; // Still present but will be flagged as early departure
-    } else if (!hasValidPunchIn && hasValidPunchOut) {
-      // Has valid punch-out but late punch-in
-      console.log(`   Day ${day} (${dayName}): Late In (${inTime1}) but Valid Out (${finalPunchOutTime}) → P (Present with issues)`);
-      return 'P'; // Still present but will be flagged as late arrival
-    } else {
-      // Has punch data but doesn't meet criteria
-      console.log(`   Day ${day} (${dayName}): Invalid punch times - In: ${inTime1}, Out: ${finalPunchOutTime} → P (Present with issues)`);
-      return 'P'; // Present but with significant issues
-    }
+    console.log(`   ✅ Day ${day} (${dayName}): ${uniquePunchTimes.length} punches (${firstPunch} to ${lastPunch}) → P (Present${statusNote})`);
+    
+    return 'P'; // Present (issues will be caught by attendance analyzer)
   }
 
   /**
    * Calculate summary statistics from daily data
+   * @private
+   */
+  /**
+   * Calculate summary statistics from daily data - WEEKDAYS ONLY (Monday-Friday)
+   * UPDATED: Only count Monday-Friday for attendance calculations
    * @private
    */
   static _calculateSummaryFromDailyData(dailyData) {
@@ -398,37 +542,68 @@ class ExcelParserService {
     let totalWorkMinutes = 0;
     let totalLateMinutes = 0;
     let totalEarlyMinutes = 0;
+    let weekdaysProcessed = 0;
+    
+    console.log('   📊 Calculating summary - Monday to Friday only...');
     
     dailyData.forEach(day => {
-      if (day.status === 'P') {
-        present++;
-      } else if (day.status === 'A') {
-        absent++;
-      } else if (day.status === 'WO' || day.isWeekend) {
+      if (day.isWeekend || day.status === 'WO') {
+        // Weekend days - exclude from attendance calculation
         weekendDays++;
-      }
-      
-      // Parse duration if available
-      if (day.duration && day.duration !== '00:00') {
-        const durationMatch = day.duration.match(/^(\\d+):(\\d+)$/);
-        if (durationMatch) {
-          totalWorkMinutes += parseInt(durationMatch[1]) * 60 + parseInt(durationMatch[2]);
+        console.log(`      📅 Day ${day.day} (${day.dayAbbr}): Weekend → Excluded from calculation`);
+      } else if (day.isWeekday || day.includeInAttendance !== false) {
+        // Weekday - include in attendance calculation
+        weekdaysProcessed++;
+        
+        if (day.status === 'P') {
+          present++;
+          console.log(`      📅 Day ${day.day} (${day.dayAbbr}): Present → Counted`);
+        } else if (day.status === 'A') {
+          absent++;
+          console.log(`      📅 Day ${day.day} (${day.dayAbbr}): Absent → Counted`);
+        } else {
+          // Handle other statuses (H for holidays, etc.)
+          if (day.status === 'H') {
+            console.log(`      📅 Day ${day.day} (${day.dayAbbr}): Holiday → Excluded from calculation`);
+            // Don't count holidays in present/absent
+          } else {
+            // Unknown status on weekday - treat as present for now
+            present++;
+            console.log(`      📅 Day ${day.day} (${day.dayAbbr}): ${day.status} → Treated as Present`);
+          }
+        }
+        
+        // Parse duration if available
+        if (day.duration && day.duration !== '00:00') {
+          const durationMatch = day.duration.match(/^(\d+):(\d+)$/);
+          if (durationMatch) {
+            totalWorkMinutes += parseInt(durationMatch[1]) * 60 + parseInt(durationMatch[2]);
+          }
         }
       }
     });
     
-    const workingDays = dailyData.length - weekendDays;
+    // Working days = only weekdays (exclude weekends completely)
+    const workingDays = weekdaysProcessed;
+    const totalDays = dailyData.length;
     
-    return {
+    const summary = {
       present: present,
       absent: absent,
       weekendDays: weekendDays,
-      workingDays: workingDays,
-      totalDays: dailyData.length,
+      workingDays: workingDays, // Only Monday-Friday count as working days
+      totalDays: totalDays,
+      weekdaysProcessed: weekdaysProcessed,
+      attendanceRate: workingDays > 0 ? Math.round((present / workingDays) * 100) : 0,
       lateByHours: ExcelParserService._minutesToHours(totalLateMinutes),
       earlyByHours: ExcelParserService._minutesToHours(totalEarlyMinutes),
-      averageWorkingHours: workingDays > 0 ? ExcelParserService._minutesToHours(Math.round(totalWorkMinutes / workingDays)) : '00:00'
+      averageWorkingHours: workingDays > 0 ? ExcelParserService._minutesToHours(Math.round(totalWorkMinutes / workingDays)) : '00:00',
+      note: `Attendance calculated for weekdays only (Monday-Friday). ${weekendDays} weekend days excluded.`
     };
+    
+    console.log(`      📊 Final: ${present}P + ${absent}A = ${workingDays} working days (${weekendDays} weekends excluded)`);
+    
+    return summary;
   }
 
 
@@ -1269,6 +1444,110 @@ class ExcelParserService {
     
     return titleCell && titleCell.v && 
            titleCell.v.toString().includes('Four Punch');
+  }
+
+  /**
+   * Parse Four Punch data but filter for INN Department only
+   * @param {Object} workbook - XLSX workbook object
+   * @returns {Array} Array of INN department employee data only
+   */
+  static parseFourPunchDataINNOnly(workbook) {
+    console.log('🎯 Parsing Four Punch data with INN department filter...');
+    
+    // First try the standard INN parsing
+    try {
+      const innEmployees = ExcelParserService.parseINNDepartmentData(workbook);
+      if (innEmployees && innEmployees.length > 0) {
+        console.log(`✅ Found ${innEmployees.length} INN employees using standard INN parsing`);
+        return innEmployees;
+      }
+    } catch (error) {
+      console.log('Standard INN parsing failed, trying alternative approach...');
+    }
+    
+    // If standard INN parsing fails, try generic parsing with filtering
+    try {
+      const allEmployees = ExcelParserService.parseFourPunchData(workbook);
+      console.log(`Found ${allEmployees.length} total employees, filtering for INN...`);
+      
+      // Filter for INN department employees
+      const innEmployees = allEmployees.filter(emp => {
+        // Check multiple ways an employee might be marked as INN
+        const isINN = emp.department && emp.department.toUpperCase().includes('INN');
+        const nameHasINN = emp.name && emp.name.toUpperCase().includes('INN');
+        const idHasINN = emp.id && emp.id.toString().toUpperCase().includes('INN');
+        
+        if (isINN || nameHasINN || idHasINN) {
+          console.log(`✅ INN employee found: ${emp.name} (${emp.id}) - Department: ${emp.department}`);
+          return true;
+        }
+        return false;
+      });
+      
+      // Ensure all filtered employees are marked as INN department
+      return innEmployees.map(emp => ({
+        ...emp,
+        department: 'INN'
+      }));
+      
+    } catch (error) {
+      console.log('Generic parsing with INN filter failed, trying manual extraction...');
+      return ExcelParserService.extractINNFromGenericFormat(workbook);
+    }
+  }
+
+  /**
+   * Extract INN department employees from generic Excel format
+   * Fallback method when other parsing methods don't find INN employees
+   * @param {Object} workbook - XLSX workbook object
+   * @returns {Array} Array of INN department employee data only
+   */
+  static extractINNFromGenericFormat(workbook) {
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    
+    console.log('🔍 Attempting manual INN extraction from generic format...');
+    
+    // First, try to find the INN department section
+    const innDepartmentRow = ExcelParserService._findINNDepartmentRow(worksheet, range);
+    
+    if (innDepartmentRow === -1) {
+      console.log('❌ No INN department section found in the file');
+      return [];
+    }
+    
+    console.log(`✅ Found INN department at row ${innDepartmentRow + 1}`);
+    
+    // Use the existing INN extraction logic
+    const { UTILS } = require('../utils/constants');
+    
+    // Parse day headers if available
+    let dayHeaders = {};
+    try {
+      dayHeaders = ExcelParserService._parseDayHeaders(worksheet, range, 
+        ATTENDANCE_CONFIG.REPORT_MONTH, ATTENDANCE_CONFIG.REPORT_YEAR);
+    } catch (error) {
+      console.log('Could not parse day headers, using fallback method');
+      // Create generic day headers
+      for (let col = 2; col <= Math.min(35, range.e.c); col++) {
+        dayHeaders[col] = {
+          day: col - 1,
+          dayAbbr: 'D',
+          dayName: 'Day',
+          isWeekend: false
+        };
+      }
+    }
+    
+    // Extract INN employees using existing logic
+    const employees = ExcelParserService._extractINNEmployeesOnly(
+      worksheet, innDepartmentRow, dayHeaders, 
+      ATTENDANCE_CONFIG.REPORT_MONTH, ATTENDANCE_CONFIG.REPORT_YEAR, UTILS
+    );
+    
+    console.log(`🎯 Manual INN extraction result: ${employees.length} employees found`);
+    return employees;
   }
 }
 

@@ -16,11 +16,14 @@ const Hero = ({
         <div className="hero-content">
           <div className="hero-text">
             <h1 className="hero-headline">
-              Attendance Intelligence<br />
-              <span className="highlight">That Works</span>
+              <span className="department-badge">INN Department</span><br />
+              Weekdays-Only<br />
+              <span className="highlight">Attendance System</span>
             </h1>
             <p className="hero-subhead">
-              Upload your Excel attendance files and get instant analysis for INN Department with intelligent issue detection and automated reporting.
+              Dedicated attendance analysis for <strong>INN Department employees</strong>. 
+              Calculates attendance only for <strong>weekdays (Monday-Friday)</strong>. 
+              Weekend days are automatically excluded from all calculations.
             </p>
             <div className="hero-buttons">
               <Button 
@@ -29,7 +32,7 @@ const Hero = ({
                 onClick={onUploadClick}
                 loading={loading}
               >
-                {loading ? 'Processing...' : 'Upload Excel File'}
+                {loading ? 'Processing INN Department...' : 'Upload INN Department Excel'}
               </Button>
               <Button 
                 variant="secondary"
@@ -37,7 +40,7 @@ const Hero = ({
                 onClick={onProcessFixedFile}
                 disabled={loading}
               >
-                Process INN Department
+                Process Existing INN File
               </Button>
             </div>
           </div>

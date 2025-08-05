@@ -34,9 +34,9 @@ class FixedFileController {
         });
       }
       
-      // Analyze attendance issues with enhanced weekend detection
-      const issues = AttendanceAnalyzerService.analyzeAttendanceWithWeekends ? 
-        AttendanceAnalyzerService.analyzeAttendanceWithWeekends(employees) :
+      // Analyze attendance issues - WEEKDAYS ONLY (Monday-Friday)
+      const issues = AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly ? 
+        AttendanceAnalyzerService.analyzeAttendanceWeekdaysOnly(employees) :
         AttendanceAnalyzerService.analyzeAttendance(employees);
       
       // Generate comprehensive summary

@@ -33,6 +33,25 @@
   background-clip: text;
 }
 
+.department-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #0066cc 0%, #004499 100%);
+  color: white;
+  padding: 8px 20px;
+  border-radius: 25px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  box-shadow: 0 4px 15px rgba(0, 102, 204, 0.3);
+  position: relative;
+}
+
+.department-badge::before {
+  content: '🏢';
+  margin-right: 8px;
+}
+
 .hero-subhead {
   font-size: 1.25rem;
   color: #666;

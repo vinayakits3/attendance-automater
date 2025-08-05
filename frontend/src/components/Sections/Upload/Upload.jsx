@@ -44,7 +44,7 @@ const Upload = ({
             {loading ? (
               <Loading 
                 size="large" 
-                message="Processing your attendance data..." 
+                message="Processing INN Department attendance (weekdays only)..." 
               />
             ) : (
               <>
@@ -52,8 +52,12 @@ const Upload = ({
                   <IllustrationPlaceholder type="upload" />
                 </div>
                 <div className="drop-text">
-                  <h3>Drop your Excel file here</h3>
-                  <p>Or click here to browse files</p>
+                  <h3>📊 Upload INN Department Excel File</h3>
+                  <p>Drop your INN attendance file here or click to browse</p>
+                  <div className="processing-info">
+                    <div className="info-badge">🏢 INN Department Only</div>
+                    <div className="info-badge">📅 Weekdays Only (Mon-Fri)</div>
+                  </div>
                   <div className="supported-formats">
                     <span>Supported: .xlsx, .xls</span>
                   </div>

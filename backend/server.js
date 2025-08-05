@@ -44,20 +44,33 @@ app.use(errorHandler);
 
 // Start server
 const server = app.listen(SERVER_CONFIG.PORT, () => {
-  console.log(`🚀 Attendance Intelligence Platform running on port ${SERVER_CONFIG.PORT}`);
-  console.log(`📁 Monitoring file: ${ATTENDANCE_CONFIG.EXCEL_FILE_PATH}`);
-  console.log(`🏢 Department: ${ATTENDANCE_CONFIG.DEPARTMENT_NAME}`);
+  console.log('='.repeat(80));
+  console.log(`🏢 ${ATTENDANCE_CONFIG.SYSTEM_NAME}`);
+  console.log('='.repeat(80));
+  console.log(`🚀 Server running on port ${SERVER_CONFIG.PORT}`);
+  console.log(`📅 Processing Policy: WEEKDAYS ONLY (Monday-Friday)`);
+  console.log(`🏢 Department Focus: INN DEPARTMENT ONLY`);
+  console.log(`📁 Excel file path: ${ATTENDANCE_CONFIG.EXCEL_FILE_PATH}`);
   console.log(`⏰ Work hours: ${ATTENDANCE_CONFIG.CHECK_IN_TIME} - ${ATTENDANCE_CONFIG.CHECK_OUT_TIME}`);
   console.log(`🌐 Environment: ${SERVER_CONFIG.NODE_ENV}`);
   console.log(`🌐 Access at: http://localhost:${SERVER_CONFIG.PORT}`);
+  console.log('─'.repeat(80));
+  console.log('📋 SYSTEM FEATURES:');
+  console.log('   ✅ INN Department employees only');
+  console.log('   ✅ Monday-Friday attendance calculation');
+  console.log('   ❌ Weekend days automatically excluded');
+  console.log('   ✅ Four-punch attendance system support');
+  console.log('   ✅ Late arrival and early departure detection');
+  console.log('─'.repeat(80));
   
   // Check if Excel file exists
   const fs = require('fs');
   if (fs.existsSync(ATTENDANCE_CONFIG.EXCEL_FILE_PATH)) {
-    console.log('✅ Excel file found and ready for processing');
+    console.log('✅ Excel file found and ready for INN department processing');
   } else {
-    console.log('⚠️  Excel file not found. Upload functionality available.');
+    console.log('📤 Excel file not found. Upload functionality available for INN department files');
   }
+  console.log('='.repeat(80));
 });
 
 // Graceful shutdown

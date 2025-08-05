@@ -65,6 +65,24 @@
   font-size: 1rem;
 }
 
+.processing-info {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 16px 0;
+  flex-wrap: wrap;
+}
+
+.info-badge {
+  background: linear-gradient(135deg, #0066cc 0%, #004499 100%);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 15px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 102, 204, 0.3);
+}
+
 .supported-formats {
   font-size: 0.875rem;
   color: #999;
