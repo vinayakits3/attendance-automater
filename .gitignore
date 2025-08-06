@@ -44,3 +44,4 @@ frontend/out/         # for Next.js static export
 # Cache files
 frontend/.cache/
 backend/.cache/
+.serena
